@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DraftRoom</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #13161b;
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+
+/* ── UPLOAD SCREEN ── */
+#upload-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 28px;
+}
+.upload-title { font-size: 26px; font-weight: 700; color: #f8fafc; letter-spacing: -0.01em; }
+.upload-subtitle { font-size: 13px; color: #4b5563; margin-top: 6px; text-align: center; }
+
+.upload-row { display: flex; gap: 18px; width: 100%; max-width: 820px; }
+
+.upload-card {
+  flex: 1;
+  background: #1a1f2a;
+  border: 2px dashed #2d3748;
+  border-radius: 12px;
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  text-align: center;
+}
+.upload-card:hover, .upload-card.drag-over { border-color: #4f7ef8; background: #1a243a; }
+.upload-card.done { border-color: #22c55e; border-style: solid; }
+.upload-icon { font-size: 28px; }
+.upload-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; }
+.upload-hint { font-size: 11px; color: #374151; line-height: 1.5; }
+.upload-done-msg { font-size: 12px; color: #22c55e; font-weight: 600; display: none; }
+.upload-card.done .upload-done-msg { display: block; }
+.upload-card.done .upload-hint { display: none; }
+
+.url-card {
+  flex: 1;
+  background: #1a1f2a;
+  border: 2px solid #1e2530;
+  border-radius: 12px;
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.url-card.done { border-color: #22c55e; }
+.url-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; }
+.url-input {
+  background: #0d1117;
+  border: 1px solid #2d3748;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #f1f5f9;
+  font-size: 12px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.url-input:focus { border-color: #4f7ef8; }
+.url-hint { font-size: 11px; color: #374151; line-height: 1.4; }
+.url-done-msg { font-size: 12px; color: #22c55e; font-weight: 600; display: none; }
+.url-card.done .url-done-msg { display: block; }
+
+.toggle-row { display: flex; align-items: center; gap: 14px; }
+.toggle-label { font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; }
+.team-toggle {
+  display: flex;
+  background: #1a1f2a;
+  border: 1px solid #2d3748;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.team-btn {
+  padding: 8px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: #4b5563;
+  transition: all 0.15s;
+}
+.team-btn.active { background: #4f7ef8; color: #fff; }
+
+.gen-btn {
+  padding: 13px 44px;
+  background: #4f7ef8;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  opacity: 0.35;
+  pointer-events: none;
+  transition: opacity 0.2s, background 0.15s;
+}
+.gen-btn.ready { opacity: 1; pointer-events: auto; }
+.gen-btn.ready:hover { background: #3b6ef0; }
+
+#loading { display: none; flex-direction: column; align-items: center; gap: 14px; }
+.spinner {
+  width: 36px; height: 36px;
+  border: 3px solid #1e2530;
+  border-top-color: #4f7ef8;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+.spinner-sm {
+  width: 14px; height: 14px;
+  border: 2px solid #2d3748;
+  border-top-color: #4f7ef8;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  display: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-msg { font-size: 12px; color: #4b5563; }
+.error-msg { font-size: 13px; color: #f87171; text-align: center; max-width: 420px; line-height: 1.5; }
+
+/* ── BOARD SCREEN ── */
+#board-screen { display: none; min-height: 100vh; }
+
+.board-header {
+  background: #0d1117;
+  border-bottom: 1px solid #1a1f2a;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.board-title { font-size: 15px; font-weight: 700; color: #f1f5f9; }
+.board-meta { font-size: 10px; color: #374151; margin-top: 2px; }
+.board-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+/* Sync controls */
+.sync-area {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  background: #1a1f2a;
+  border: 1px solid #2d3748;
+  border-radius: 8px;
+}
+.sync-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+.sync-dot.stale { background: #f59e0b; }
+.sync-dot.syncing { background: #4f7ef8; animation: pulse 0.8s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.sync-clock { font-size: 10px; color: #475569; font-variant-numeric: tabular-nums; }
+.sync-btn {
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid #2d3748;
+  border-radius: 5px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sync-btn:hover { border-color: #4f7ef8; color: #4f7ef8; }
+
+.rounds-select {
+  background: #1a1f2a;
+  border: 1px solid #2d3748;
+  border-radius: 6px;
+  color: #94a3b8;
+  padding: 5px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ctrl-label { font-size: 11px; color: #374151; }
+.back-btn {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid #2d3748;
+  border-radius: 6px;
+  color: #4b5563;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.back-btn:hover { border-color: #4b5563; color: #94a3b8; }
+
+/* Board layout */
+.board-wrap { padding: 10px 12px 24px; overflow-x: auto; }
+
+.legend {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 6px 4px 10px;
+  flex-wrap: wrap;
+}
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #4b5563; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+
+.col-header { text-align: center; font-size: 9px; font-weight: 700; color: #2d3748; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 0; }
+.round-label-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: #2d3748;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  writing-mode: vertical-lr;
+  transform: rotate(180deg);
+  padding: 4px 0;
+}
+
+/* ── PLAYER CARD ── */
+.pick-card {
+  display: flex;
+  border-radius: 7px;
+  overflow: hidden;
+  min-height: 90px;
+  min-width: 0;
+  transition: opacity 0.3s, filter 0.3s;
+}
+.pick-card.empty {
+  background: #161b24;
+  border: 1px dashed #1e2530;
+  min-height: 90px;
+}
+
+/* Drafted — heavy fade */
+.pick-card.drafted {
+  opacity: 0.18;
+  filter: grayscale(90%) brightness(0.5);
+  pointer-events: none;
+}
+
+/* Tier strip — number upright, no head-tilt needed */
+.tier-strip {
+  width: 24px;
+  flex-shrink: 0;
+  background: rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.82);
+  user-select: none;
+}
+
+/* Card body */
+.card-body { flex: 1; padding: 6px 7px 5px; display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.card-name { line-height: 1.15; }
+.card-fname { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-lname { font-size: 12px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-pos-team { display: flex; align-items: center; gap: 5px; }
+.pos-badge {
+  font-size: 9px; font-weight: 800;
+  padding: 1px 5px; border-radius: 3px;
+  background: rgba(0,0,0,0.3); color: rgba(255,255,255,0.9);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.card-nfl-team { font-size: 9.5px; color: rgba(255,255,255,0.55); font-weight: 600; }
+.card-ranks { display: flex; align-items: center; justify-content: space-between; margin-top: 1px; }
+.card-ranks-left { display: flex; align-items: center; gap: 5px; }
+.rank-val { font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.92); }
+.rank-sep { font-size: 10px; color: rgba(255,255,255,0.25); }
+.adp-diff-pos { font-size: 9px; color: #86efac; font-weight: 700; }
+.adp-diff-neg { font-size: 9px; color: #fca5a5; font-weight: 700; }
+.card-slot { font-size: 11px; color: rgba(255,255,255,0.45); letter-spacing: 0.02em; }
+/* ADP row — standalone below rank row */
+.card-adp-row { display: flex; align-items: baseline; gap: 4px; margin-top: auto; padding-top: 2px; }
+.card-adp-lbl { font-size: 7.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: rgba(255,255,255,0.2); }
+.card-adp-val { font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.82); }
+.card-adp-na  { font-size: 11px; color: rgba(255,255,255,0.2); }
+
+/* Position palette — Sleeper */
+.bg-QB  { background-color: rgba(200,75,110,0.45); }
+.bg-RB  { background-color: rgba(26,158,138,0.45); }
+.bg-WR  { background-color: rgba(78,109,212,0.45); }
+.bg-TE  { background-color: rgba(201,122,37,0.45); }
+.bg-K   { background-color: rgba(75,85,99,0.45); }
+.bg-DEF { background-color: rgba(55,65,81,0.45); }
+.bg-UNK { background-color: rgba(30,41,59,0.45); }
+
+/* ── BOARD LAYOUT (sidebar + grid) ── */
+#board-screen { flex-direction: column; height: 100vh; overflow: hidden; }
+.board-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+.board-sidebar {
+  width: 210px;
+  flex-shrink: 0;
+  background: #0d1117;
+  border-right: 1px solid #1a1f2a;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 0 24px;
+  transition: width 0.2s ease;
+  position: relative;
+}
+.board-sidebar.collapsed {
+  width: 28px;
+  overflow-y: hidden;
+}
+.board-sidebar.collapsed .sidebar-inner { display: none; }
+.sidebar-toggle {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  width: 100%;
+  background: #1a1f2a;
+  border-bottom: 2px solid #2d3748;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 10px 12px;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.sidebar-toggle:hover { background: #252d3d; }
+.board-sidebar.collapsed .sidebar-toggle { justify-content: center; padding: 10px 6px; }
+.sidebar-toggle-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  flex: 1;
+}
+.board-sidebar.collapsed .sidebar-toggle-label { display: none; }
+.sidebar-toggle-arrow {
+  font-size: 16px;
+  font-weight: 700;
+  color: #64748b;
+  line-height: 1;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.sidebar-toggle:hover .sidebar-toggle-arrow { color: #94a3b8; }
+.board-sidebar.collapsed .sidebar-toggle-arrow { transform: rotate(180deg); }
+.sidebar-inner { padding: 6px 0 0; }
+.sidebar-player {
+  display: flex;
+  gap: 7px;
+  padding: 7px 12px;
+  border-bottom: 1px solid #161b24;
+}
+.sidebar-player:hover { background: #111827; }
+.sb-rank {
+  font-size: 10px;
+  font-weight: 700;
+  color: #2d3748;
+  width: 14px;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+.sb-info { flex: 1; min-width: 0; }
+.sb-name { font-size: 14px; font-weight: 700; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+.sb-pos-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+.sb-nfl-team { font-size: 11px; color: rgba(255,255,255,0.55); font-weight: 600; }
+.sb-stats { display: flex; gap: 7px; flex-wrap: wrap; }
+.sb-stat { font-size: 11px; color: #64748b; white-space: nowrap; }
+.sb-stat b { color: #cbd5e1; }
+.sb-wk17 { font-size: 11px; color: #64748b; margin-top: 2px; }
+.sb-wk17 b { color: #cbd5e1; }
+.sb-empty { font-size: 11px; color: #2d3748; padding: 16px 12px; text-align: center; }
+
+/* board-wrap now scrolls both axes inside the flex body */
+.board-wrap { flex: 1; overflow: auto; padding: 10px 12px 24px; }
+</style>
+</head>
+<body>
+
+<!-- ── UPLOAD SCREEN ── -->
+<div id="upload-screen">
+  <div style="text-align:center">
+    <div class="upload-title">DraftRoom</div>
+    <div class="upload-subtitle">Upload your rankings CSV and Sleeper draft URL to generate your snake board</div>
+  </div>
+
+  <div class="upload-row">
+    <div class="upload-card" id="csv-drop" onclick="document.getElementById('csv-input').click()">
+      <div class="upload-icon">📋</div>
+      <div class="upload-label">Rankings CSV</div>
+      <div class="upload-hint">Drop file here or click to browse<br><br>Columns: Overall · Player · Position<br>Pos Rank · Tier</div>
+      <div class="upload-done-msg" id="csv-done-msg">✓ players loaded</div>
+    </div>
+    <input type="file" id="csv-input" accept=".csv" style="display:none">
+
+    <div class="url-card" id="url-card">
+      <div class="url-label">🏈 Draft URL <span id="platform-badge" style="display:none;margin-left:6px;font-size:10px;padding:2px 7px;border-radius:10px;background:#1e293b;color:#64748b;font-weight:700;letter-spacing:0.05em;text-transform:uppercase"></span></div>
+      <input type="text" class="url-input" id="draft-url"
+             placeholder="Sleeper draft URL  ·  ESPN league URL or ID"
+             oninput="onUrlInput()">
+      <div class="url-hint">Supports Sleeper and ESPN. Platform is auto-detected from the URL.</div>
+      <div class="url-done-msg" id="url-done-msg">✓ <span id="draft-id-display" style="font-family:monospace;font-size:11px"></span></div>
+    </div>
+  </div>
+
+  <div class="toggle-row">
+    <span class="toggle-label">League Size</span>
+    <div class="team-toggle" id="upload-team-toggle">
+      <button class="team-btn" data-teams="10" onclick="setTeams(10)">10 Team</button>
+      <button class="team-btn active" data-teams="12" onclick="setTeams(12)">12 Team</button>
+    </div>
+  </div>
+
+  <div class="toggle-row">
+    <span class="toggle-label">What format are your rankings in?</span>
+    <div class="team-toggle" id="upload-scoring-toggle">
+      <button class="team-btn active" data-scoring="half_ppr" onclick="setScoring('half_ppr')">Half-PPR</button>
+      <button class="team-btn" data-scoring="ppr" onclick="setScoring('ppr')">PPR</button>
+      <button class="team-btn" data-scoring="std" onclick="setScoring('std')">Standard</button>
+    </div>
+  </div>
+
+  <button class="gen-btn" id="gen-btn" onclick="generateBoard()">Generate Board</button>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <div class="loading-msg" id="loading-msg">Fetching Sleeper data…</div>
+  </div>
+  <div class="error-msg" id="error-msg" style="display:none"></div>
+</div>
+
+<!-- ── BOARD SCREEN ── -->
+<div id="board-screen">
+  <div class="board-header">
+    <div>
+      <div class="board-title" id="board-title">DraftRoom</div>
+      <div class="board-meta" id="board-meta"></div>
+    </div>
+    <div class="board-controls">
+      <!-- Sync area -->
+      <div class="sync-area">
+        <div class="sync-dot" id="sync-dot"></div>
+        <div class="spinner-sm" id="sync-spinner"></div>
+        <span class="sync-clock" id="sync-clock">—</span>
+        <button class="sync-btn" id="sync-btn" onclick="manualSync()">↻ Sync</button>
+      </div>
+
+      <span class="ctrl-label" style="margin-left:4px">Rounds:</span>
+      <select class="rounds-select" id="rounds-select" onchange="renderBoard()">
+        <option value="10">10</option>
+        <option value="12">12</option>
+        <option value="15" selected>15</option>
+        <option value="17">17</option>
+        <option value="20">20</option>
+      </select>
+      <div class="team-toggle" id="board-team-toggle" style="transform:scale(0.88);transform-origin:left center">
+        <button class="team-btn" data-teams="10" onclick="setTeamsBoard(10)">10</button>
+        <button class="team-btn active" data-teams="12" onclick="setTeamsBoard(12)">12</button>
+      </div>
+      <div class="team-toggle" id="board-scoring-toggle" style="transform:scale(0.88);transform-origin:left center">
+        <button class="team-btn active" data-scoring="half_ppr" onclick="setScoringBoard('half_ppr')">½PPR</button>
+        <button class="team-btn" data-scoring="ppr" onclick="setScoringBoard('ppr')">PPR</button>
+        <button class="team-btn" data-scoring="std" onclick="setScoringBoard('std')">Std</button>
+      </div>
+      <button class="back-btn" onclick="goBack()">← New Upload</button>
+    </div>
+  </div>
+
+  <div class="board-body">
+  <div class="board-sidebar" id="board-sidebar">
+    <div class="sidebar-toggle" onclick="toggleSidebar()">
+      <span class="sidebar-toggle-label">Next Available</span>
+      <span class="sidebar-toggle-arrow">‹</span>
+    </div>
+    <div class="sidebar-inner">
+      <div id="sidebar-list"></div>
+    </div>
+  </div>
+  <div class="board-wrap">
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch bg-QB"></div>QB</div>
+      <div class="legend-item"><div class="legend-swatch bg-RB"></div>RB</div>
+      <div class="legend-item"><div class="legend-swatch bg-WR"></div>WR</div>
+      <div class="legend-item"><div class="legend-swatch bg-TE"></div>TE</div>
+      <div style="width:1px;background:#1e2530;height:14px;margin:0 4px"></div>
+      <div class="legend-item" style="color:#2d3748;font-weight:400;text-transform:none;letter-spacing:0">
+        Left strip = Tier &nbsp;·&nbsp;
+        <span style="color:#86efac;font-weight:600">+N</span> = pick clock past your rank (value) &nbsp;·&nbsp;
+        <span style="color:#fca5a5;font-weight:600">−N</span> = would be a reach right now &nbsp;·&nbsp;
+        Faded = drafted
+      </div>
+    </div>
+    <div id="board-grid"></div>
+  </div><!-- /.board-wrap -->
+  </div><!-- /.board-body -->
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+// ── State ──
+let csvPlayers    = [];
+let sleeperByName = {};   // normName  -> { adp, team, id }
+let sleeperById   = {};   // player_id -> normName
+let draftedPicks  = new Map();  // normName -> actual pick_no (overall)
+let draftMeta     = {};
+let teamCount     = 12;
+let scoringFormat = 'half_ppr';  // 'half_ppr' | 'ppr' | 'std'
+let isSuperflex   = false;       // detected from draft settings
+let draftId       = '';
+let platform      = 'sleeper';   // 'sleeper' | 'espn' | 'yahoo'
+let espnLeagueId  = '';
+const espnCache   = new Map();   // ESPN playerId → normName (persists across polls)
+let lastSync       = null;   // Date of last pick sync
+let autoTimer      = null;   // setInterval handle
+let clockTimer     = null;   // setInterval for clock display
+let teamWeek17     = {};     // team abbr -> { opp, isHome } for week 17
+let adpFieldName   = null;   // detected ADP field name (for header)
+let adpRankedCount = 0;      // players with valid ADP
+
+// ── Hardcoded 2026 NFL schedule data ──
+const NFL_2026 = {
+  bye: {
+    ARI: 14, ATL: 11, BAL: 13, BUF: 7,  CAR: 5,  CHI: 10,
+    CIN: 6,  CLE: 11, DAL: 14, DEN: 10, DET: 6,  GB:  11,
+    HOU: 8,  IND: 13, JAX: 7,  KC:  5,  LAC: 7,  LAR: 11,
+    LV:  13, MIA: 6,  MIN: 6,  NE:  11, NO:  8,  NYG: 8,
+    NYJ: 13, PHI: 10, PIT: 9,  SEA: 11, SF:  8,  TB:  10,
+    TEN: 9,  WAS: 7,
+  },
+  week17: {
+    BAL: { opp:'CIN',  isHome:false }, CIN: { opp:'BAL',  isHome:true  },
+    NO:  { opp:'ATL',  isHome:false }, ATL: { opp:'NO',   isHome:true  },
+    IND: { opp:'CLE',  isHome:false }, CLE: { opp:'IND',  isHome:true  },
+    NYG: { opp:'DAL',  isHome:false }, DAL: { opp:'NYG',  isHome:true  },
+    PIT: { opp:'TEN',  isHome:false }, TEN: { opp:'PIT',  isHome:true  },
+    BUF: { opp:'MIA',  isHome:false }, MIA: { opp:'BUF',  isHome:true  },
+    MIN: { opp:'NYJ',  isHome:false }, NYJ: { opp:'MIN',  isHome:true  },
+    SEA: { opp:'CAR',  isHome:false }, CAR: { opp:'SEA',  isHome:true  },
+    LV:  { opp:'ARI',  isHome:false }, ARI: { opp:'LV',   isHome:true  },
+    DET: { opp:'CHI',  isHome:false }, CHI: { opp:'DET',  isHome:true  },
+    PHI: { opp:'SF',   isHome:false }, SF:  { opp:'PHI',  isHome:true  },
+    HOU: { opp:'GB',   isHome:false }, GB:  { opp:'HOU',  isHome:true  },
+    DEN: { opp:'NE',   isHome:false }, NE:  { opp:'DEN',  isHome:true  },
+    KC:  { opp:'LAC',  isHome:false }, LAC: { opp:'KC',   isHome:true  },
+    LAR: { opp:'TB',   isHome:false }, TB:  { opp:'LAR',  isHome:true  },
+    WAS: { opp:'JAX',  isHome:false }, JAX: { opp:'WAS',  isHome:true  },
+  },
+};
+
+// ── Name normalisation ──
+function normName(n) {
+  return (n || '').toLowerCase()
+    .replace(/[''`]/g, "'")
+    .replace(/\s+(jr\.?|sr\.?|ii|iii|iv)$/i, '')
+    .replace(/[^a-z0-9' ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Common nickname aliases — add more as needed
+const NAME_ALIASES = {
+  'kenneth gainwell': 'kenny gainwell',
+  'kenny gainwell':   'kenneth gainwell',
+  'gabriel davis':    'gabe davis',
+  'gabe davis':       'gabriel davis',
+  'robbie chosen':    'odell beckham',
+  'marquez valdez-scantling': 'mvs',
+};
+
+// Display name overrides: internal key (normName) → preferred display string
+// Use this to show a nickname while keeping the full name for DB matching
+const DISPLAY_NAMES = {
+  'kenneth gainwell': 'Kenny Gainwell',
+  'kenny gainwell':   'Kenny Gainwell',
+};
+
+function displayName(csvName) {
+  return DISPLAY_NAMES[normName(csvName)] || csvName;
+}
+
+function tierHsl(t) {
+  // Golden angle (137.508°) maximises perceptual distance between adjacent tiers
+  const hue = Math.round(((t - 1) * 137.508) % 360);
+  return `hsla(${hue},55%,36%,0.92)`;
+}
+
+function lookupSleeper(csvName) {
+  const key = normName(csvName);
+  if (sleeperByName[key]) return sleeperByName[key];
+  // Try known alias
+  const aliasKey = NAME_ALIASES[key];
+  if (aliasKey && sleeperByName[aliasKey]) return sleeperByName[aliasKey];
+  // Try first-two-word prefix
+  const prefix = key.split(' ').slice(0, 2).join(' ');
+  const found  = Object.entries(sleeperByName).find(([k]) => k.startsWith(prefix));
+  return found ? found[1] : null;
+}
+
+// Resolve pick number for a CSV player name, checking all name variants
+function resolvePickNo(csvName) {
+  const key1 = normName(csvName);
+  // 1. Direct key
+  let pn = draftedPicks.get(key1);
+  if (pn !== undefined) return pn;
+  // 2. Alias key
+  const aliasKey = NAME_ALIASES[key1];
+  if (aliasKey) { pn = draftedPicks.get(aliasKey); if (pn !== undefined) return pn; }
+  // 3. Sleeper player-ID key (most reliable once the draft starts)
+  const sInfo = lookupSleeper(csvName);
+  const altKey = sInfo?.id ? sleeperById[sInfo.id] : null;
+  if (altKey) { pn = draftedPicks.get(altKey); if (pn !== undefined) return pn; }
+  return undefined;
+}
+
+function parseDraftId(url) {
+  const m = (url || '').match(/\/draft\/[^/]+\/(\d{10,})/);
+  if (m) return m[1];
+  const digits = (url || '').replace(/[^0-9]/g, '');
+  return digits.length >= 10 ? digits.slice(-18) : '';
+}
+
+function posClass(pos) {
+  return ['QB','RB','WR','TE','K','DEF'].includes(pos) ? `bg-${pos}` : 'bg-UNK';
+}
+
+function escHtml(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── CSV ──
+document.getElementById('csv-input').addEventListener('change', e => {
+  if (e.target.files[0]) loadCSV(e.target.files[0]);
+});
+const csvDrop = document.getElementById('csv-drop');
+csvDrop.addEventListener('dragover', e => { e.preventDefault(); csvDrop.classList.add('drag-over'); });
+csvDrop.addEventListener('dragleave', () => csvDrop.classList.remove('drag-over'));
+csvDrop.addEventListener('drop', e => {
+  e.preventDefault(); csvDrop.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) loadCSV(e.dataTransfer.files[0]);
+});
+
+function loadCSV(file) {
+  Papa.parse(file, {
+    header: true, skipEmptyLines: true,
+    complete: result => {
+      const rows = result.data;
+      const get = (r, ...names) => {
+        const keys = Object.keys(r);
+        for (const n of names) {
+          const k = keys.find(k => k.trim().toLowerCase() === n.toLowerCase());
+          if (k !== undefined) return (r[k] || '').trim();
+        }
+        return '';
+      };
+
+      // Parse all rows; ov may be 0 if no rank column — we'll fix that below
+      let parsed = rows.map((r, i) => ({
+        ov:   parseInt(get(r,'Overall','overall','Rank','rank') || '0'),
+        name: get(r,'Player','player','Name','name'),
+        pos:  get(r,'Position','position','Pos','pos').toUpperCase(),
+        pr:   parseInt(get(r,'Pos Rank','pos rank','posrank','pos_rank','PosRank') || '0'),
+        tier: parseInt(get(r,'Tier','tier') || '0'),
+        team: get(r,'Team','team','NFL Team','nfl_team').toUpperCase() || null,
+        bye:  parseInt(get(r,'Bye','bye','Bye Week','bye_week') || '0') || null,
+        _row: i,   // preserve original row order for rank fallback
+      })).filter(p => p.name);
+
+      // If no rank column found, assign sequential rank from original row order
+      const hasRank = parsed.some(p => p.ov > 0);
+      if (!hasRank) parsed.forEach((p, i) => { p.ov = i + 1; });
+
+      parsed = parsed.filter(p => p.ov > 0).sort((a, b) => a.ov - b.ov);
+
+      // Auto-compute tiers in buckets of teamCount if no Tier column
+      const hasTier = parsed.some(p => p.tier > 0);
+      if (!hasTier) parsed.forEach((p, i) => { p.tier = Math.ceil((i + 1) / (teamCount || 12)); });
+
+      csvPlayers = parsed;
+      document.getElementById('csv-done-msg').textContent = `✓ ${csvPlayers.length} players loaded`;
+      csvDrop.classList.add('done');
+      checkReady();
+    }
+  });
+}
+
+// ── Platform detection ──
+function detectPlatform(url) {
+  if (!url) return null;
+  if (/sleeper\.(app|com)/.test(url) || /^\d{15,}$/.test(url.replace(/\s/g,''))) return 'sleeper';
+  if (/espn\.com/.test(url)) return 'espn';
+  if (/yahoo\.com/.test(url)) return 'yahoo';
+  // Bare number that looks like an ESPN league ID (4-10 digits)
+  if (/^\d{4,10}$/.test(url.replace(/\s/g,''))) return 'espn';
+  return null;
+}
+
+function parseESPNLeagueId(url) {
+  const m = url.match(/[?&]leagueId=(\d+)/i) || url.match(/\/leagues?\/(\d+)/i);
+  if (m) return m[1];
+  const digits = url.replace(/\D/g,'');
+  return digits.length >= 4 && digits.length <= 12 ? digits : '';
+}
+
+// ── URL ──
+function onUrlInput() {
+  const val  = document.getElementById('draft-url').value.trim();
+  const card = document.getElementById('url-card');
+  const badge = document.getElementById('platform-badge');
+  const detected = detectPlatform(val);
+
+  platform = detected || 'sleeper';
+
+  let resolved = false;
+  if (platform === 'espn') {
+    espnLeagueId = parseESPNLeagueId(val);
+    if (espnLeagueId) {
+      draftId = 'ESPN_' + espnLeagueId;  // sentinel so checkReady passes
+      document.getElementById('draft-id-display').textContent = `ESPN league ${espnLeagueId}`;
+      badge.textContent = 'ESPN'; badge.style.display = ''; badge.style.color = '#e8534a'; badge.style.background = '#2a1419';
+      document.getElementById('url-done-msg').style.display = 'block';
+      card.classList.add('done');
+      resolved = true;
+    }
+  } else {
+    const id = parseDraftId(val);
+    if (id) {
+      draftId = id; platform = 'sleeper';
+      document.getElementById('draft-id-display').textContent = `Sleeper ${id}`;
+      badge.textContent = 'SLEEPER'; badge.style.display = ''; badge.style.color = '#a78bfa'; badge.style.background = '#1a1030';
+      document.getElementById('url-done-msg').style.display = 'block';
+      card.classList.add('done');
+      resolved = true;
+    }
+  }
+
+  if (!resolved) {
+    draftId = ''; espnLeagueId = '';
+    badge.style.display = 'none';
+    document.getElementById('url-done-msg').style.display = 'none';
+    card.classList.remove('done');
+  }
+  checkReady();
+}
+
+function checkReady() {
+  const hasId = platform === 'espn' ? espnLeagueId.length >= 4 : draftId.length >= 10;
+  document.getElementById('gen-btn').classList.toggle('ready', csvPlayers.length > 0 && hasId);
+}
+
+// ── League toggle ──
+function setTeams(n) {
+  teamCount = n;
+  document.querySelectorAll('#upload-team-toggle .team-btn').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.teams) === n));
+}
+function setTeamsBoard(n) {
+  teamCount = n;
+  document.querySelectorAll('#board-team-toggle .team-btn').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.teams) === n));
+  renderBoard();
+}
+function setScoring(fmt) {
+  scoringFormat = fmt;
+  document.querySelectorAll('#upload-scoring-toggle .team-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.scoring === fmt));
+}
+function setScoringBoard(fmt) {
+  scoringFormat = fmt;
+  document.querySelectorAll('#board-scoring-toggle .team-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.scoring === fmt));
+  renderBoard();
+}
+
+function goBack() {
+  stopAutoSync();
+  document.getElementById('board-screen').style.display = 'none';
+  document.getElementById('upload-screen').style.display = 'flex';
+  document.getElementById('gen-btn').style.display = '';
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('error-msg').style.display = 'none';
+}
+
+// ── Generate (full load) ──
+async function generateBoard() {
+  const ready = platform === 'espn' ? espnLeagueId.length >= 4 : draftId.length >= 10;
+  if (!csvPlayers.length || !ready) return;
+  document.getElementById('gen-btn').style.display = 'none';
+  document.getElementById('error-msg').style.display = 'none';
+  document.getElementById('loading').style.display = 'flex';
+
+  try {
+    await loadSleeperFull();
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('upload-screen').style.display = 'none';
+    document.getElementById('board-screen').style.display = 'flex';
+    renderBoard();
+    startAutoSync();
+  } catch (err) {
+    console.error(err);
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('gen-btn').style.display = '';
+    document.getElementById('error-msg').textContent = '⚠ ' + err.message;
+    document.getElementById('error-msg').style.display = 'block';
+  }
+}
+
+// Full load: draft meta + all players + ADP + picks
+async function loadSleeperFull() {
+  const setMsg = m => document.getElementById('loading-msg').textContent = m;
+
+  // 1. Draft metadata — branches by platform
+  if (platform === 'espn') {
+    await loadESPNMeta(setMsg);
+  } else {
+    setMsg('Fetching draft info…');
+    const dRes = await fetch(`https://api.sleeper.app/v1/draft/${draftId}`);
+    if (!dRes.ok) throw new Error(`Draft not found (ID: ${draftId}). Check the URL and make sure the draft is public.`);
+    draftMeta   = await dRes.json();
+    isSuperflex = (draftMeta.settings?.slots_super_flex ?? 0) > 0;
+    console.log(`[Sleeper] Format: ${isSuperflex ? 'superflex' : '1QB'}, scoring: ${draftMeta.metadata?.scoring_type}`);
+  }
+
+  // 2. All players — includes adp_half, team, full_name, player_id
+  setMsg('Downloading Sleeper player database (may take a moment)…');
+  const pRes = await fetch('https://api.sleeper.app/v1/players/nfl');
+  if (!pRes.ok) throw new Error('Could not reach Sleeper player database.');
+  const allPlayers = await pRes.json();
+
+  sleeperByName = {};
+  sleeperById   = {};
+
+  // Detect which ADP field Sleeper actually has data in (varies by API version)
+  // Priority: format-specific first, then general adp, then search_rank as last resort
+  const adpCandidates = scoringFormat === 'ppr' ? ['adp_ppr','adp','adp_half','adp_std']
+                      : scoringFormat === 'std' ? ['adp_std','adp','adp_half','adp_ppr']
+                      :                           ['adp_half','adp','adp_ppr','adp_std'];
+  let detectedAdpField = null;
+
+  for (const [pid, p] of Object.entries(allPlayers)) {
+    if (!p.full_name) continue;
+
+    // Auto-detect the first field with a real value (not null/undefined/sentinel)
+    if (!detectedAdpField && ['QB','RB','WR','TE'].includes(p.position)) {
+      for (const f of adpCandidates) {
+        const v = Number(p[f]);
+        if (p[f] != null && !isNaN(v) && v > 0 && v < 9999) {
+          detectedAdpField = f;
+          console.log(`[Sleeper] ADP field detected: "${f}" (value=${v}). All available rank/adp keys:`,
+            Object.keys(p).filter(k => k.includes('adp') || k.includes('rank')));
+          break;
+        }
+      }
+    }
+
+    const rawVal = detectedAdpField ? p[detectedAdpField] : null;
+    const adpRaw = (rawVal != null && Number(rawVal) < 9999) ? Number(rawVal) : null;
+    const key = normName(p.full_name);
+    sleeperByName[key] = {
+      adp:     adpRaw,
+      adpRank: null,
+      bye:     (p.bye_week != null && p.bye_week > 0) ? p.bye_week : null,
+      team:    p.team || null,
+      id:      pid,
+    };
+    sleeperById[pid] = key;
+  }
+
+  // Compute ordinal ADP rank from Sleeper as initial fallback
+  const ranked = Object.values(sleeperByName)
+    .filter(v => v.adp != null)
+    .sort((a, b) => a.adp - b.adp);
+  ranked.forEach((entry, i) => { entry.adpRank = i + 1; });
+  adpFieldName   = detectedAdpField || 'sleeper';
+  adpRankedCount = ranked.length;
+  console.log(`[Sleeper] ${Object.keys(sleeperByName).length} players indexed. ${ranked.length} with ADP via field "${detectedAdpField}".`);
+
+  // 3. ADP — fetch FFC + FantasyCalc concurrently, merge (FFC wins, FC fills gaps)
+  setMsg('Fetching ADP data…');
+
+  // Multi-proxy fetcher: direct → allorigins/raw → allorigins/get
+  async function corsGet(url) {
+    const tries = [
+      () => fetch(url),
+      () => fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`),
+      () => fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`).then(async r => {
+              const w = await r.json(); return new Response(w.contents, { status: 200 }); }),
+    ];
+    for (let i = 0; i < tries.length; i++) {
+      try {
+        const r = await tries[i]();
+        if (r && r.ok) { console.log(`[ADP] strategy ${i} ok: ${url.split('?')[0]}`); return r; }
+      } catch(e) { console.warn(`[ADP] strategy ${i} failed:`, e.message); }
+    }
+    throw new Error('all CORS strategies exhausted');
+  }
+
+  const ffcFormat = scoringFormat === 'ppr' ? 'ppr' : scoringFormat === 'std' ? 'standard' : 'half-ppr';
+  const fcPpr     = scoringFormat === 'ppr' ? 1 : scoringFormat === 'std' ? 0 : 0.5;
+  const ffcUrl    = `https://fantasyfootballcalculator.com/api/v1/adp/${ffcFormat}?teams=${teamCount}&year=2026`;
+  const fcUrl     = `https://api.fantasycalc.com/values/current?isDynasty=false&numQbs=1&ppr=${fcPpr}&numTeams=${teamCount}`;
+
+  // Fetch both in parallel; failures are non-fatal
+  const [ffcResult, fcResult] = await Promise.allSettled([
+    corsGet(ffcUrl).then(r => r.json()),
+    corsGet(fcUrl).then(r => r.json()),
+  ]);
+
+  // Build lookup maps: normName → adp value
+  const ffcMap = new Map(); // normName → decimal ADP
+  const fcMap  = new Map(); // normName → FC overallRank (used as relative order)
+
+  if (ffcResult.status === 'fulfilled') {
+    const d = ffcResult.value;
+    const players = Array.isArray(d) ? d : (d.players || []);
+    console.log(`[ADP] FFC: ${players.length} players. Sample:`, players[0]);
+    players.forEach(fp => {
+      if (!fp.name || fp.adp == null) return;
+      ffcMap.set(normName(fp.name), Number(fp.adp));
+    });
+  } else { console.warn('[ADP] FFC failed:', ffcResult.reason?.message); }
+
+  if (fcResult.status === 'fulfilled') {
+    const players = Array.isArray(fcResult.value) ? fcResult.value : [];
+    console.log(`[ADP] FC: ${players.length} players. Sample:`, players[0]);
+    players.forEach((fp, i) => {
+      const name = fp.player?.name || fp.name;
+      if (!name) return;
+      const rank = fp.overallRank ?? fp.redraftRank ?? (i + 1);
+      fcMap.set(normName(name), rank);
+    });
+  } else { console.warn('[ADP] FantasyCalc failed:', fcResult.reason?.message); }
+
+  // Merge: reset adp, apply FFC, fill gaps with FC
+  Object.values(sleeperByName).forEach(v => { v.adp = null; v.adpRank = null; });
+
+  // Helper: write adp into sleeperByName (create entry if missing)
+  function setAdp(key, val, teamHint) {
+    if (sleeperByName[key]) { sleeperByName[key].adp = val; }
+    else { sleeperByName[key] = { adp: val, adpRank: null, bye: null, team: teamHint || null, id: null }; }
+  }
+
+  ffcMap.forEach((adp, key) => setAdp(key, adp));
+
+  // FC fills any player still null; offset ensures FC-only players sort after all FFC players
+  const maxFfcAdp = ffcMap.size > 0 ? Math.max(...ffcMap.values()) + 1 : 300;
+  fcMap.forEach((rank, key) => {
+    const entry = sleeperByName[key];
+    if (!entry || entry.adp == null) setAdp(key, maxFfcAdp + rank);
+  });
+
+  // Compute final ordinal ranks
+  const allRanked = Object.values(sleeperByName)
+    .filter(v => v.adp != null).sort((a, b) => a.adp - b.adp);
+  allRanked.forEach((e, i) => { e.adpRank = i + 1; });
+  adpFieldName   = ffcMap.size > 0 ? `FFC ${ffcFormat}` + (fcMap.size > 0 ? '+FC' : '') : (fcMap.size > 0 ? 'FantasyCalc' : 'unavailable');
+  adpRankedCount = allRanked.length;
+  console.log(`[ADP] Merged: ${ffcMap.size} FFC + ${fcMap.size} FC players → ${allRanked.length} ranked total`);
+
+  // 4. Week 17 schedule — hardcoded 2026 data (Sleeper API not yet available pre-season)
+  teamWeek17 = NFL_2026.week17;
+  console.log(`[Sleeper] Week 17: ${Object.keys(teamWeek17).length} teams from hardcoded 2026 LUT`);
+
+  // 5. Initial picks
+  setMsg('Fetching draft picks…');
+  await fetchPicks();
+}
+
+// Lightweight pick refresh (no player DB reload)
+async function fetchPicks() {
+  if (platform === 'espn') { await fetchPicksESPN(); return; }
+
+  // Sleeper
+  const res = await fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
+  if (!res.ok) return;
+  const picks = await res.json();
+  draftedPicks = new Map();
+  picks.forEach(pk => {
+    const norm = sleeperById[pk.player_id];
+    if (norm) draftedPicks.set(norm, pk.pick_no);
+  });
+  lastSync = new Date();
+  updateSyncUI(false);
+}
+
+// ── ESPN meta load ──
+async function loadESPNMeta(setMsg) {
+  setMsg = setMsg || (m => document.getElementById('loading-msg').textContent = m);
+  setMsg('Fetching ESPN league info…');
+  const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/${espnLeagueId}?view=mSettings`;
+  const r = await corsGet(url);
+  const data = await r.json();
+  const s = data.settings || {};
+  teamCount   = s.size || teamCount;
+  const recPts = s.scoringSettings?.receptionPoints ?? 0.5;
+  scoringFormat = recPts >= 1 ? 'ppr' : recPts > 0 ? 'half_ppr' : 'std';
+  isSuperflex = (s.rosterSettings?.lineupSlotCounts?.['17'] ?? 0) > 0; // slot 17 = superflex
+  draftMeta   = { metadata: { name: s.name || `ESPN League ${espnLeagueId}`, scoring_type: scoringFormat } };
+  console.log(`[ESPN] Meta: "${s.name}", ${teamCount} teams, scoring: ${scoringFormat}, superflex: ${isSuperflex}`);
+}
+
+// ── ESPN picks fetch ──
+async function fetchPicksESPN() {
+  try {
+    updateSyncUI(true);
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leagues/${espnLeagueId}?view=mDraftDetail&view=mRoster`;
+    const r = await corsGet(url);
+    const data = await r.json();
+
+    // Build/update player name cache from rosters (covers all drafted players)
+    (data.teams || []).forEach(team => {
+      (team.roster?.entries || []).forEach(entry => {
+        const pool = entry.playerPoolEntry || {};
+        const pi   = pool.playerInfo || pool.player || {};
+        const id   = pi.id ?? pi.playerId ?? entry.playerId;
+        const full = pi.fullName ?? pi.name ?? `${pi.firstName||''} ${pi.lastName||''}`.trim();
+        if (id && full) espnCache.set(id, normName(full));
+      });
+    });
+
+    // Build draftedPicks; resolve any uncached IDs via public ESPN athlete API
+    const picks = data.draftDetail?.picks || [];
+    draftedPicks = new Map();
+    const uncached = [];
+    picks.forEach(pk => {
+      const key = espnCache.get(pk.playerId);
+      if (key) draftedPicks.set(key, pk.overallPickNumber);
+      else uncached.push(pk);
+    });
+
+    // Resolve uncached player IDs (batched, fire-and-forget for speed)
+    if (uncached.length) {
+      await Promise.allSettled(uncached.map(async pk => {
+        try {
+          const ar = await fetch(`https://site.api.espn.com/apis/common/v3/sports/football/nfl/athletes/${pk.playerId}`);
+          if (!ar.ok) return;
+          const ad = await ar.json();
+          const fullName = ad.athlete?.displayName ?? ad.displayName ?? ad.fullName;
+          if (fullName) {
+            const key = normName(fullName);
+            espnCache.set(pk.playerId, key);
+            draftedPicks.set(key, pk.overallPickNumber);
+          }
+        } catch(e) { /* ignore */ }
+      }));
+    }
+
+    console.log(`[ESPN] ${picks.length} picks · ${draftedPicks.size} resolved · ${uncached.length} needed athlete lookup`);
+    lastSync = new Date();
+    updateSyncUI(false);
+  } catch(e) {
+    console.warn('[ESPN] fetchPicks failed:', e.message);
+    updateSyncUI(false);
+  }
+}
+
+// ── Sync UI ──
+function updateSyncUI(syncing) {
+  const dot     = document.getElementById('sync-dot');
+  const spinner = document.getElementById('sync-spinner');
+  const clock   = document.getElementById('sync-clock');
+  const btn     = document.getElementById('sync-btn');
+
+  if (syncing) {
+    dot.style.display = 'none';
+    spinner.style.display = 'block';
+    btn.disabled = true;
+    btn.style.opacity = '0.4';
+  } else {
+    spinner.style.display = 'none';
+    dot.style.display = 'block';
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  }
+
+  if (lastSync) {
+    clock.textContent = lastSync.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    // Dot colour: green if <40s, amber if stale
+    const age = (Date.now() - lastSync.getTime()) / 1000;
+    dot.className = 'sync-dot' + (age > 40 ? ' stale' : '');
+  }
+}
+
+function startAutoSync() {
+  stopAutoSync();
+  // Tick clock every second (just for colour freshness indicator)
+  clockTimer = setInterval(() => updateSyncUI(false), 5000);
+  // Full pick refresh every 30s
+  autoTimer = setInterval(async () => {
+    updateSyncUI(true);
+    await fetchPicks();
+    renderBoard();
+  }, 30000);
+}
+
+function stopAutoSync() {
+  if (autoTimer)  { clearInterval(autoTimer);  autoTimer  = null; }
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null; }
+}
+
+async function manualSync() {
+  updateSyncUI(true);
+  await fetchPicks();
+  renderBoard();
+}
+
+// ── Sidebar collapse ──
+function toggleSidebar() {
+  document.getElementById('board-sidebar').classList.toggle('collapsed');
+}
+
+// ── Sidebar ──
+function renderSidebar() {
+  // Top 10 undrafted players by CSV rank
+  const available = csvPlayers.filter(p => resolvePickNo(p.name) === undefined).slice(0, 12);
+
+  if (!available.length) {
+    document.getElementById('sidebar-list').innerHTML =
+      '<div class="sb-empty">All players drafted</div>';
+    return;
+  }
+
+  let html = '';
+  available.forEach((p, i) => {
+    const sInfo   = lookupSleeper(p.name);
+    const team    = p.team || sInfo?.team || '';  // CSV team takes priority (more current than Sleeper)
+    const bye     = p.bye ?? (team ? (NFL_2026.bye[team] ?? null) : null);  // CSV bye > LUT
+    const adpRank = sInfo?.adpRank ?? null;
+    const wk17data = team ? teamWeek17[team] : null;
+    const wk17str  = wk17data
+      ? (wk17data.isHome ? 'vs ' : '@ ') + wk17data.opp
+      : '—';
+
+    const tierBg = tierHsl(p.tier).replace('0.92)', '0.18)');  // same hue, much lower alpha
+    html += `
+      <div class="sidebar-player" style="background:${tierBg}">
+        <div class="sb-rank">${i + 1}</div>
+        <div class="sb-info">
+          <div class="sb-name">${escHtml(displayName(p.name))}</div>
+          <div class="sb-pos-row">
+            <span class="pos-badge">${p.pos}</span>
+            ${team ? `<span class="sb-nfl-team">${team}</span>` : ''}
+          </div>
+          <div class="sb-stats">
+            <span class="sb-stat">Rk <b>#${p.ov}</b></span>
+            <span class="sb-stat">ADP <b>${adpRank ?? '—'}</b></span>
+            <span class="sb-stat">Tier <b>${p.tier}</b></span>
+          </div>
+          <div class="sb-stats" style="margin-top:2px">
+            <span class="sb-stat">Bye <b>${bye ?? '—'}</b></span>
+            <span class="sb-stat">Wk17 <b>${wk17str}</b></span>
+          </div>
+        </div>
+      </div>`;
+  });
+
+  document.getElementById('sidebar-list').innerHTML = html;
+}
+
+// ── Render ──
+function renderBoard() {
+  const tc     = teamCount;
+  const rounds = parseInt(document.getElementById('rounds-select').value);
+  const total  = tc * rounds;
+  const players = csvPlayers.slice(0, total);
+
+  // Header meta
+  const draftName   = draftMeta.metadata?.name || `Draft ${draftId}`;
+  const scoringType = draftMeta.metadata?.scoring_type || draftMeta.settings?.type || 'half_ppr';
+  document.getElementById('board-title').textContent = draftName;
+  const adpNote = adpRankedCount > 0
+    ? ` · ADP: ${adpFieldName} (${adpRankedCount} players)`
+    : ' · ⚠ ADP unavailable';
+  document.getElementById('board-meta').textContent =
+    `ID: ${draftId}  ·  ${tc}-Team  ·  ${scoringType.replace(/_/g,' ')}  ·  ${rounds} Rounds${adpNote}`;
+
+  // Sync board toggles
+  document.querySelectorAll('#board-team-toggle .team-btn').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.teams) === tc));
+
+  // Build grid[round][col] — snake order
+  const grid = Array.from({length: rounds}, () => Array(tc).fill(null));
+  players.forEach((p, idx) => {
+    const rank        = idx + 1;
+    const round       = Math.ceil(rank / tc) - 1;        // 0-indexed
+    const posInRound  = rank - round * tc;                // 1 → tc
+    const col         = (round % 2 === 0)
+                          ? posInRound - 1
+                          : tc - posInRound;              // 0-indexed
+    if (round < rounds) {
+      grid[round][col] = { ...p, round: round + 1, pick: posInRound };
+    }
+  });
+
+  const rowLabelW = 28;
+  const gapPx     = 4;
+  const minGridW  = rowLabelW + tc * 108 + (tc + 1) * gapPx;
+  const colCss    = `${rowLabelW}px repeat(${tc},1fr)`;
+
+  let html = `<div style="min-width:${minGridW}px">`;
+
+  // Column headers
+  html += `<div style="display:grid;grid-template-columns:${colCss};gap:${gapPx}px;margin-bottom:4px">`;
+  html += `<div></div>`;
+  for (let c = 1; c <= tc; c++) {
+    html += `<div class="col-header">Team ${c}</div>`;
+  }
+  html += `</div>`;
+
+  const currentPickNo = draftedPicks.size + 1;  // pick currently on the clock
+
+  // Rounds
+  for (let r = 0; r < rounds; r++) {
+    html += `<div style="display:grid;grid-template-columns:${colCss};gap:${gapPx}px;margin-bottom:${gapPx}px">`;
+    html += `<div class="round-label-cell">Rd ${r + 1}</div>`;
+
+    for (let c = 0; c < tc; c++) {
+      const p = grid[r][c];
+      if (!p) { html += `<div class="pick-card empty"></div>`; continue; }
+
+      // Sleeper match via helper (handles aliases + prefix fallback)
+      const key1 = normName(p.name);
+      const sInfo = lookupSleeper(p.name);
+
+      const adp      = sInfo?.adp ?? null;
+      const adpRank  = sInfo?.adpRank ?? null;  // ordinal rank (mirrors Sleeper "RK" column)
+      const nflTeam  = p.team || sInfo?.team || '';
+      const pickStr  = `${p.round}.${String(p.pick).padStart(2,'0')}`;
+      const overallPick = (p.round - 1) * tc + p.pick;
+      const bg       = posClass(p.pos);
+      // Drafted? check direct name, alias, and Sleeper player ID
+      const pickNo    = resolvePickNo(p.name);
+      const isDrafted = pickNo !== undefined;
+
+      // Delta (undrafted only): currentPickNo − csvRank
+      // +ve = pick clock is past your rank → still available, value
+      // −ve = pick clock is before your rank → reaching to take now
+      // Delta: only shown on undrafted players once draft is underway
+      let deltaHtml = '';
+      if (!isDrafted && draftedPicks.size > 0) {
+        const diff    = currentPickNo - p.ov;
+        const diffStr = diff > 0 ? `+${diff}` : `${diff}`;
+        const cls     = diff > 0 ? 'adp-diff-pos' : diff < 0 ? 'adp-diff-neg' : '';
+        if (diff !== 0) deltaHtml = `<span class="${cls}">${diffStr}</span>`;
+      }
+
+      const adpDisplay = adpRank != null ? `<span class="card-adp-val">${adpRank}</span>` : `<span class="card-adp-na">—</span>`;
+
+      html += `
+        <div class="pick-card ${bg}${isDrafted ? ' drafted' : ''}">
+          <div class="tier-strip" style="background:${tierHsl(p.tier)}">${p.tier}</div>
+          <div class="card-body">
+            ${(() => { const dn = displayName(p.name); const sp = dn.indexOf(' ');
+              const fn = sp >= 0 ? dn.slice(0, sp) : dn;
+              const ln = sp >= 0 ? dn.slice(sp + 1) : '';
+              return `<div class="card-name"><div class="card-fname">${escHtml(fn)}</div>${ln ? `<div class="card-lname">${escHtml(ln)}</div>` : ''}</div>`; })()}
+            <div class="card-pos-team">
+              <span class="pos-badge">${p.pos}</span>
+              ${nflTeam ? `<span class="card-nfl-team">${nflTeam}</span>` : ''}
+            </div>
+            <div class="card-ranks">
+              <div class="card-ranks-left">
+                <span class="rank-val">#${p.ov}</span>
+                ${deltaHtml ? `<span class="rank-sep">·</span>${deltaHtml}` : ''}
+              </div>
+              <span class="card-slot">${pickStr}</span>
+            </div>
+            <div class="card-adp-row">
+              <span class="card-adp-lbl">ADP</span>
+              ${adpDisplay}
+            </div>
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `</div>`;
+  document.getElementById('board-grid').innerHTML = html;
+  renderSidebar();
+}
+</script>
+</body>
+</html>
