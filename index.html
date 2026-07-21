@@ -1491,7 +1491,11 @@ let currentSessionId = null;
 sb.auth.onAuthStateChange((event, session) => {
   currentUser = session?.user ?? null;
   updateAuthUI();
-  if (event === 'SIGNED_IN') showToast('Signed in ✓');
+  if (event === 'PASSWORD_RECOVERY') {
+    // User clicked a reset link — show the set-new-password screen
+    document.getElementById('signin-modal').classList.add('open');
+    showAuthScreen('auth-new-password');
+  }
 });
 
 function updateAuthUI() {
@@ -1502,7 +1506,7 @@ function updateAuthUI() {
 }
 
 // Sign-in modal
-const AUTH_SCREENS = ['auth-signin','auth-signup','auth-forgot','auth-confirm'];
+const AUTH_SCREENS = ['auth-signin','auth-signup','auth-forgot','auth-confirm','auth-new-password'];
 function showAuthScreen(id) {
   AUTH_SCREENS.forEach(s => {
     const el = document.getElementById(s);
@@ -1543,16 +1547,22 @@ async function doSignUp() {
   const btn = document.getElementById('signup-btn');
   btn.textContent = 'Creating…'; btn.disabled = true;
   try {
-    const { data, error } = await sb.auth.signUp({ email, password });
-    if (error) throw error;
-    if (data.session) {
-      // Email confirmation is off — signed in immediately
-      closeSignIn();
-      showToast('Account created — welcome!');
-    } else {
-      // Email confirmation is on — ask them to check inbox
-      showAuthConfirm('📬', 'Check your inbox', `We sent a confirmation link to ${email}. Click it to activate your account, then sign in.`);
+    const { error: signUpError } = await sb.auth.signUp({ email, password });
+    if (signUpError) throw signUpError;
+
+    // Sign in immediately — reliable regardless of Supabase's session state after signup
+    const { error: signInError } = await sb.auth.signInWithPassword({ email, password });
+    if (signInError) {
+      if (signInError.message.toLowerCase().includes('confirm')) {
+        showAuthConfirm('📬', 'One more step', `Check your inbox and click the confirmation link for ${email}, then come back to sign in.`);
+      } else {
+        throw signInError;
+      }
+      return;
     }
+
+    closeSignIn();
+    showToast('Welcome to The Draft Room!');
   } catch(e) {
     showToast(e.message);
   } finally {
@@ -1573,6 +1583,23 @@ async function doForgotPassword() {
     showToast(e.message);
   } finally {
     btn.textContent = 'Send Reset Email'; btn.disabled = false;
+  }
+}
+
+async function doUpdatePassword() {
+  const password = document.getElementById('auth-new-pw').value;
+  if (password.length < 6) { showToast('Password must be at least 6 characters.'); return; }
+  const btn = document.getElementById('update-pw-btn');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  try {
+    const { error } = await sb.auth.updateUser({ password });
+    if (error) throw error;
+    closeSignIn();
+    showToast('Password updated — you\'re signed in!');
+  } catch(e) {
+    showToast(e.message);
+  } finally {
+    btn.textContent = 'Save Password'; btn.disabled = false;
   }
 }
 
@@ -1731,6 +1758,15 @@ function showToast(msg) {
              onkeydown="if(event.key==='Enter')doForgotPassword()">
       <button class="modal-btn primary" id="reset-btn" onclick="doForgotPassword()">Send Reset Email</button>
       <button class="modal-btn ghost" onclick="showAuthScreen('auth-signin')">← Back to sign in</button>
+    </div>
+
+    <!-- Screen: set new password (after reset link) -->
+    <div id="auth-new-password" style="display:none">
+      <div class="modal-title">Set new password</div>
+      <div class="modal-sub">Choose a new password for your account.</div>
+      <input type="password" class="modal-input" id="auth-new-pw" placeholder="New password (min 6 characters)"
+             autocomplete="new-password" onkeydown="if(event.key==='Enter')doUpdatePassword()">
+      <button class="modal-btn primary" id="update-pw-btn" onclick="doUpdatePassword()">Save Password</button>
     </div>
 
     <!-- Screen: confirmation -->
