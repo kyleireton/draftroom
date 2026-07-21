@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DraftRoom</title>
+<title>The Draft Room</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -404,6 +404,110 @@ body {
 
 /* board-wrap now scrolls both axes inside the flex body */
 .board-wrap { flex: 1; overflow: auto; padding: 10px 12px 24px; }
+
+/* ── AUTH BAR ── */
+.auth-bar {
+  position: fixed; top: 14px; right: 18px;
+  display: flex; align-items: center; gap: 8px;
+  z-index: 200;
+}
+.auth-chip {
+  background: #1a1f2a; border: 1px solid #2d3748; border-radius: 20px;
+  padding: 6px 14px; font-size: 12px; font-weight: 600; color: #64748b;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.auth-chip:hover { border-color: #4f7ef8; color: #e2e8f0; }
+.auth-chip.accent { background: #1e3358; border-color: #3b6fe8; color: #93c5fd; }
+.auth-chip.accent:hover { background: #1d4ed8; color: #fff; }
+.auth-email-lbl { font-size: 11px; color: #374151; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── MODAL OVERLAY ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75);
+  align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-overlay.open { display: flex; }
+.modal-card {
+  background: #1a1f2a; border: 1px solid #2d3748; border-radius: 16px;
+  padding: 32px 28px; width: min(380px, 92vw);
+  display: flex; flex-direction: column; gap: 14px; position: relative;
+}
+.modal-title { font-size: 18px; font-weight: 700; color: #f1f5f9; }
+.modal-sub { font-size: 13px; color: #64748b; line-height: 1.6; }
+.modal-input {
+  background: #0d1117; border: 1px solid #2d3748; border-radius: 8px;
+  padding: 11px 14px; color: #f1f5f9; font-size: 14px; width: 100%; outline: none;
+  transition: border-color 0.15s;
+}
+.modal-input:focus { border-color: #4f7ef8; }
+.modal-btn {
+  padding: 11px 20px; border-radius: 8px; font-size: 14px; font-weight: 600;
+  cursor: pointer; border: none; transition: all 0.15s; text-align: center;
+}
+.modal-btn.primary { background: #4f7ef8; color: #fff; }
+.modal-btn.primary:hover { background: #3b6fe8; }
+.modal-btn.ghost { background: transparent; color: #4b5563; font-size: 12px; }
+.modal-btn.ghost:hover { color: #94a3b8; }
+.modal-x {
+  position: absolute; top: 14px; right: 16px;
+  background: none; border: none; color: #4b5563; font-size: 22px;
+  cursor: pointer; line-height: 1;
+}
+.modal-x:hover { color: #94a3b8; }
+.modal-check { text-align: center; padding: 8px 0; }
+.modal-check-icon { font-size: 38px; margin-bottom: 8px; }
+
+/* ── SESSIONS LIST ── */
+.sessions-list { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto; }
+.session-card {
+  background: #0d1117; border: 1px solid #2d3748; border-radius: 10px;
+  padding: 12px 14px; display: flex; align-items: center; gap: 10px;
+  cursor: pointer; transition: border-color 0.15s;
+}
+.session-card:hover { border-color: #4f7ef8; }
+.session-info { flex: 1; min-width: 0; }
+.session-name { font-size: 14px; font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-meta { font-size: 11px; color: #4b5563; margin-top: 2px; }
+.session-del { background: none; border: none; color: #374151; cursor: pointer; font-size: 16px; padding: 2px 6px; transition: color 0.15s; flex-shrink: 0; }
+.session-del:hover { color: #ef4444; }
+.sessions-empty { font-size: 13px; color: #374151; text-align: center; padding: 20px 0; }
+
+/* ── SAVE PROMPT ── */
+.save-prompt {
+  position: fixed; bottom: 22px; right: 22px;
+  background: #1a1f2a; border: 1px solid #2d3748; border-radius: 12px;
+  padding: 12px 16px; display: flex; align-items: center; gap: 10px;
+  z-index: 300; box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  transform: translateY(80px); opacity: 0; transition: all 0.3s ease;
+  pointer-events: none;
+}
+.save-prompt.show { transform: translateY(0); opacity: 1; pointer-events: all; }
+.save-prompt-lbl { font-size: 12px; color: #64748b; white-space: nowrap; }
+.save-prompt-input {
+  background: #0d1117; border: 1px solid #2d3748; border-radius: 6px;
+  padding: 6px 10px; color: #f1f5f9; font-size: 12px; width: 155px; outline: none;
+  transition: border-color 0.15s;
+}
+.save-prompt-input:focus { border-color: #4f7ef8; }
+.save-prompt-btn {
+  background: #4f7ef8; border: none; border-radius: 6px;
+  color: #fff; font-size: 12px; font-weight: 600; padding: 6px 12px; cursor: pointer;
+}
+.save-prompt-btn:hover { background: #3b6fe8; }
+.save-prompt-x { background: none; border: none; color: #374151; cursor: pointer; font-size: 18px; line-height: 1; }
+.save-prompt-x:hover { color: #64748b; }
+
+/* ── TOAST ── */
+.toast {
+  position: fixed; bottom: 20px; left: 50%;
+  transform: translateX(-50%) translateY(60px);
+  background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+  padding: 10px 20px; font-size: 13px; color: #e2e8f0;
+  z-index: 600; opacity: 0; transition: all 0.25s ease; white-space: nowrap;
+  pointer-events: none;
+}
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 </style>
 </head>
 <body>
@@ -411,7 +515,7 @@ body {
 <!-- ── UPLOAD SCREEN ── -->
 <div id="upload-screen">
   <div style="text-align:center">
-    <div class="upload-title">DraftRoom</div>
+    <div class="upload-title">The Draft Room</div>
     <div class="upload-subtitle">Upload your rankings CSV and Sleeper draft URL to generate your snake board</div>
   </div>
 
@@ -464,7 +568,7 @@ body {
 <div id="board-screen">
   <div class="board-header">
     <div>
-      <div class="board-title" id="board-title">DraftRoom</div>
+      <div class="board-title" id="board-title">The Draft Room</div>
       <div class="board-meta" id="board-meta"></div>
     </div>
     <div class="board-controls">
@@ -527,6 +631,7 @@ body {
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 // ── State ──
 let csvPlayers    = [];
@@ -547,6 +652,7 @@ let clockTimer     = null;   // setInterval for clock display
 let teamWeek17     = {};     // team abbr -> { opp, isHome } for week 17
 let adpFieldName   = null;   // detected ADP field name (for header)
 let adpRankedCount = 0;      // players with valid ADP
+let rawCsvText     = '';     // raw CSV text — persisted to Supabase for session restore
 
 // ── Hardcoded 2026 NFL schedule data ──
 const NFL_2026 = {
@@ -671,6 +777,9 @@ csvDrop.addEventListener('drop', e => {
 });
 
 function loadCSV(file) {
+  const reader = new FileReader();
+  reader.onload = e => { rawCsvText = e.target.result; };
+  reader.readAsText(file);
   Papa.parse(file, {
     header: true, skipEmptyLines: true,
     complete: result => {
@@ -706,6 +815,43 @@ function loadCSV(file) {
       const hasTier = parsed.some(p => p.tier > 0);
       if (!hasTier) parsed.forEach((p, i) => { p.tier = Math.ceil((i + 1) / (teamCount || 12)); });
 
+      csvPlayers = parsed;
+      document.getElementById('csv-done-msg').textContent = `✓ ${csvPlayers.length} players loaded`;
+      csvDrop.classList.add('done');
+      checkReady();
+    }
+  });
+}
+
+// Reparse from raw text (used when restoring a saved session)
+function parseCSVText(text) {
+  Papa.parse(text, {
+    header: true, skipEmptyLines: true,
+    complete: result => {
+      const rows = result.data;
+      const get = (r, ...names) => {
+        const keys = Object.keys(r);
+        for (const n of names) {
+          const k = keys.find(k => k.trim().toLowerCase() === n.toLowerCase());
+          if (k !== undefined) return (r[k] || '').trim();
+        }
+        return '';
+      };
+      let parsed = rows.map((r, i) => ({
+        ov:   parseInt(get(r,'Overall','overall','Rank','rank') || '0'),
+        name: get(r,'Player','player','Name','name'),
+        pos:  get(r,'Position','position','Pos','pos').toUpperCase(),
+        pr:   parseInt(get(r,'Pos Rank','pos rank','posrank','pos_rank','PosRank') || '0'),
+        tier: parseInt(get(r,'Tier','tier') || '0'),
+        team: get(r,'Team','team','NFL Team','nfl_team').toUpperCase() || null,
+        bye:  parseInt(get(r,'Bye','bye','Bye Week','bye_week') || '0') || null,
+        _row: i,
+      })).filter(p => p.name);
+      const hasRank = parsed.some(p => p.ov > 0);
+      if (!hasRank) parsed.forEach((p, i) => { p.ov = i + 1; });
+      parsed = parsed.filter(p => p.ov > 0).sort((a, b) => a.ov - b.ov);
+      const hasTier = parsed.some(p => p.tier > 0);
+      if (!hasTier) parsed.forEach((p, i) => { p.tier = Math.ceil((i + 1) / (teamCount || 12)); });
       csvPlayers = parsed;
       document.getElementById('csv-done-msg').textContent = `✓ ${csvPlayers.length} players loaded`;
       csvDrop.classList.add('done');
@@ -826,6 +972,7 @@ async function generateBoard() {
     document.getElementById('board-screen').style.display = 'flex';
     renderBoard();
     startAutoSync();
+    setTimeout(showSavePrompt, 1500); // nudge to save after board appears
   } catch (err) {
     console.error(err);
     document.getElementById('loading').style.display = 'none';
@@ -1309,6 +1456,216 @@ function renderBoard() {
   document.getElementById('board-grid').innerHTML = html;
   renderSidebar();
 }
+
+// ── Supabase ──
+const SUPABASE_URL = 'https://vebpvmerzpoimlgaibtp.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_mB128xPNpyaj6xYoUNut8A_QU9I9qx9';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let currentUser      = null;
+let currentSessionId = null;
+
+// Initialize auth on page load — handles magic link redirect automatically
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  currentUser = session?.user ?? null;
+  updateAuthUI();
+})();
+
+sb.auth.onAuthStateChange((event, session) => {
+  currentUser = session?.user ?? null;
+  updateAuthUI();
+  if (event === 'SIGNED_IN') showToast('Signed in ✓');
+});
+
+function updateAuthUI() {
+  const on = !!currentUser;
+  document.querySelectorAll('.auth-signed-in').forEach(el => el.style.display = on ? '' : 'none');
+  document.querySelectorAll('.auth-signed-out').forEach(el => el.style.display = on ? 'none' : '');
+  if (on) document.getElementById('auth-email-lbl').textContent = currentUser.email;
+}
+
+// Sign-in modal
+function openSignIn(afterSignIn) {
+  window._afterSignIn = afterSignIn || null;
+  const m = document.getElementById('signin-modal');
+  m.classList.add('open');
+  document.getElementById('signin-form').style.display = '';
+  document.getElementById('signin-success').style.display = 'none';
+  document.getElementById('signin-email').value = '';
+}
+function closeSignIn() { document.getElementById('signin-modal').classList.remove('open'); }
+
+async function doSendMagicLink() {
+  const email = document.getElementById('signin-email').value.trim();
+  if (!email || !email.includes('@')) { showToast('Please enter a valid email.'); return; }
+  const btn = document.querySelector('#signin-form .modal-btn.primary');
+  btn.textContent = 'Sending…'; btn.disabled = true;
+  try {
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.href }
+    });
+    if (error) throw error;
+    document.getElementById('signin-form').style.display = 'none';
+    document.getElementById('signin-success').style.display = '';
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  } finally {
+    btn.textContent = 'Send Magic Link'; btn.disabled = false;
+  }
+}
+
+async function authSignOut() {
+  await sb.auth.signOut();
+  currentUser = null; currentSessionId = null;
+  updateAuthUI();
+  showToast('Signed out');
+}
+
+// My Drafts modal
+async function openMyDrafts() {
+  document.getElementById('mydrafts-modal').classList.add('open');
+  await renderSessionsList();
+}
+function closeMyDrafts() { document.getElementById('mydrafts-modal').classList.remove('open'); }
+
+async function renderSessionsList() {
+  const c = document.getElementById('sessions-list-el');
+  c.innerHTML = '<div class="sessions-empty">Loading…</div>';
+  if (!currentUser) { c.innerHTML = '<div class="sessions-empty">Sign in to see your drafts.</div>'; return; }
+  const { data, error } = await sb.from('draft_sessions')
+    .select('id,name,platform,draft_id,updated_at')
+    .order('updated_at', { ascending: false });
+  if (error || !data?.length) { c.innerHTML = '<div class="sessions-empty">No saved drafts yet.</div>'; return; }
+  c.innerHTML = data.map(s => `
+    <div class="session-card" onclick="loadSession('${s.id}')">
+      <div class="session-info">
+        <div class="session-name">${escHtml(s.name)}</div>
+        <div class="session-meta">${(s.platform||'sleeper').toUpperCase()} · ${escHtml(s.draft_id||'—')} · ${new Date(s.updated_at).toLocaleDateString()}</div>
+      </div>
+      <button class="session-del" onclick="event.stopPropagation();deleteSession('${s.id}')" title="Delete">🗑</button>
+    </div>`).join('');
+}
+
+async function loadSession(id) {
+  const { data, error } = await sb.from('draft_sessions').select('*').eq('id', id).single();
+  if (error || !data) { showToast('Could not load draft.'); return; }
+  currentSessionId = data.id;
+  platform      = data.platform || 'sleeper';
+  draftId       = data.draft_id || '';
+  teamCount     = data.team_count || 12;
+  scoringFormat = data.scoring_format || 'half_ppr';
+  isSuperflex   = data.is_superflex || false;
+  rawCsvText    = data.csv_data || '';
+  if (rawCsvText) parseCSVText(rawCsvText);
+  setTeams(teamCount);
+  setScoring(scoringFormat);
+  document.getElementById('draft-url').value = draftId;
+  onUrlInput();
+  closeMyDrafts();
+  showToast(`Loaded: ${data.name}`);
+}
+
+async function deleteSession(id) {
+  if (!confirm('Delete this draft?')) return;
+  await sb.from('draft_sessions').delete().eq('id', id);
+  if (currentSessionId === id) currentSessionId = null;
+  await renderSessionsList();
+  showToast('Draft deleted');
+}
+
+// Save prompt
+function showSavePrompt() {
+  const p = document.getElementById('save-prompt');
+  document.getElementById('save-name-input').value =
+    draftMeta?.metadata?.name || 'My Draft';
+  p.classList.add('show');
+  setTimeout(() => p.classList.remove('show'), 10000);
+}
+function hideSavePrompt() { document.getElementById('save-prompt').classList.remove('show'); }
+
+async function doSaveSession() {
+  if (!currentUser) { closeSignIn(); openSignIn(); return; }
+  const name = document.getElementById('save-name-input').value.trim() || 'My Draft';
+  const payload = {
+    user_id: currentUser.id, name, platform,
+    draft_id: draftId || espnLeagueId,
+    team_count: teamCount, scoring_format: scoringFormat,
+    is_superflex: isSuperflex, csv_data: rawCsvText,
+    updated_at: new Date().toISOString(),
+  };
+  if (currentSessionId) {
+    const { error } = await sb.from('draft_sessions').update(payload).eq('id', currentSessionId);
+    if (!error) { hideSavePrompt(); showToast('Draft saved ✓'); }
+    else showToast('Save failed.');
+  } else {
+    const { data, error } = await sb.from('draft_sessions').insert(payload).select().single();
+    if (!error) { currentSessionId = data.id; hideSavePrompt(); showToast('Draft saved ✓'); }
+    else showToast('Save failed.');
+  }
+}
+
+// Toast
+let _toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+}
 </script>
+
+<!-- ── AUTH BAR (fixed top-right) ── -->
+<div class="auth-bar">
+  <span class="auth-email-lbl auth-signed-in" id="auth-email-lbl" style="display:none"></span>
+  <button class="auth-chip auth-signed-in" style="display:none" onclick="openMyDrafts()">My Drafts</button>
+  <button class="auth-chip auth-signed-in" style="display:none" onclick="authSignOut()">Sign Out</button>
+  <button class="auth-chip accent auth-signed-out" onclick="openSignIn()">Sign in to save</button>
+</div>
+
+<!-- ── SIGN-IN MODAL ── -->
+<div class="modal-overlay" id="signin-modal">
+  <div class="modal-card">
+    <button class="modal-x" onclick="closeSignIn()">×</button>
+    <div id="signin-form">
+      <div class="modal-title">Save your drafts</div>
+      <div class="modal-sub">Enter your email — we'll send a magic link. No password needed.</div>
+      <input type="email" class="modal-input" id="signin-email" placeholder="you@example.com"
+             onkeydown="if(event.key==='Enter')doSendMagicLink()">
+      <button class="modal-btn primary" onclick="doSendMagicLink()">Send Magic Link</button>
+      <button class="modal-btn ghost" onclick="closeSignIn()">Continue without saving</button>
+    </div>
+    <div id="signin-success" style="display:none" class="modal-check">
+      <div class="modal-check-icon">📬</div>
+      <div class="modal-title" style="text-align:center">Check your inbox!</div>
+      <div class="modal-sub" style="text-align:center">Click the link in your email to sign in. This tab will update automatically.</div>
+      <button class="modal-btn ghost" onclick="closeSignIn()" style="margin-top:6px">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MY DRAFTS MODAL ── -->
+<div class="modal-overlay" id="mydrafts-modal">
+  <div class="modal-card">
+    <button class="modal-x" onclick="closeMyDrafts()">×</button>
+    <div class="modal-title">My Drafts</div>
+    <div class="sessions-list" id="sessions-list-el"></div>
+    <button class="modal-btn ghost" onclick="closeMyDrafts()">Close</button>
+  </div>
+</div>
+
+<!-- ── SAVE PROMPT ── -->
+<div class="save-prompt" id="save-prompt">
+  <span class="save-prompt-lbl">💾 Save draft</span>
+  <input type="text" class="save-prompt-input" id="save-name-input" placeholder="Name this draft…"
+         onkeydown="if(event.key==='Enter')doSaveSession()">
+  <button class="save-prompt-btn" onclick="doSaveSession()">Save</button>
+  <button class="save-prompt-x" onclick="hideSavePrompt()" title="Dismiss">×</button>
+</div>
+
+<!-- ── TOAST ── -->
+<div class="toast" id="toast"></div>
+
 </body>
 </html>
