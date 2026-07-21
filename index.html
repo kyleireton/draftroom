@@ -1485,33 +1485,52 @@ function updateAuthUI() {
 }
 
 // Sign-in modal
-function openSignIn(afterSignIn) {
-  window._afterSignIn = afterSignIn || null;
-  const m = document.getElementById('signin-modal');
-  m.classList.add('open');
-  document.getElementById('signin-form').style.display = '';
-  document.getElementById('signin-success').style.display = 'none';
-  document.getElementById('signin-email').value = '';
+function openSignIn() {
+  document.getElementById('signin-modal').classList.add('open');
+  showSigninStep1();
 }
 function closeSignIn() { document.getElementById('signin-modal').classList.remove('open'); }
+function showSigninStep1() {
+  document.getElementById('signin-step1').style.display = '';
+  document.getElementById('signin-step2').style.display = 'none';
+  document.getElementById('signin-email').value = '';
+}
 
-async function doSendMagicLink() {
+async function doSendCode() {
   const email = document.getElementById('signin-email').value.trim();
   if (!email || !email.includes('@')) { showToast('Please enter a valid email.'); return; }
-  const btn = document.querySelector('#signin-form .modal-btn.primary');
+  const btn = document.getElementById('send-code-btn');
   btn.textContent = 'Sending…'; btn.disabled = true;
   try {
-    const { error } = await sb.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.href }
-    });
+    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
     if (error) throw error;
-    document.getElementById('signin-form').style.display = 'none';
-    document.getElementById('signin-success').style.display = '';
+    document.getElementById('signin-email-display').textContent = email;
+    document.getElementById('signin-step1').style.display = 'none';
+    document.getElementById('signin-step2').style.display = '';
+    document.getElementById('signin-code').value = '';
+    setTimeout(() => document.getElementById('signin-code').focus(), 50);
   } catch(e) {
     showToast('Error: ' + e.message);
   } finally {
-    btn.textContent = 'Send Magic Link'; btn.disabled = false;
+    btn.textContent = 'Send Code'; btn.disabled = false;
+  }
+}
+
+async function doVerifyCode() {
+  const email = document.getElementById('signin-email').value.trim();
+  const token = document.getElementById('signin-code').value.trim().replace(/\D/g,'');
+  if (token.length < 6) { showToast('Enter the 6-digit code from your email.'); return; }
+  const btn = document.getElementById('verify-code-btn');
+  btn.textContent = 'Verifying…'; btn.disabled = true;
+  try {
+    const { error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+    if (error) throw error;
+    closeSignIn();
+    // onAuthStateChange fires automatically and updates UI
+  } catch(e) {
+    showToast('Invalid or expired code — try again.');
+  } finally {
+    btn.textContent = 'Sign In'; btn.disabled = false;
   }
 }
 
@@ -1628,19 +1647,24 @@ function showToast(msg) {
 <div class="modal-overlay" id="signin-modal">
   <div class="modal-card">
     <button class="modal-x" onclick="closeSignIn()">×</button>
-    <div id="signin-form">
-      <div class="modal-title">Save your drafts</div>
-      <div class="modal-sub">Enter your email — we'll send a magic link. No password needed.</div>
+    <!-- Step 1: email -->
+    <div id="signin-step1">
+      <div class="modal-title">Sign in</div>
+      <div class="modal-sub">Enter your email — we'll send a 6-digit code to this tab. No password, no redirects.</div>
       <input type="email" class="modal-input" id="signin-email" placeholder="you@example.com"
-             onkeydown="if(event.key==='Enter')doSendMagicLink()">
-      <button class="modal-btn primary" onclick="doSendMagicLink()">Send Magic Link</button>
+             onkeydown="if(event.key==='Enter')doSendCode()">
+      <button class="modal-btn primary" id="send-code-btn" onclick="doSendCode()">Send Code</button>
       <button class="modal-btn ghost" onclick="closeSignIn()">Continue without saving</button>
     </div>
-    <div id="signin-success" style="display:none" class="modal-check">
-      <div class="modal-check-icon">📬</div>
-      <div class="modal-title" style="text-align:center">Check your inbox!</div>
-      <div class="modal-sub" style="text-align:center">Click the link in your email to sign in. This tab will update automatically.</div>
-      <button class="modal-btn ghost" onclick="closeSignIn()" style="margin-top:6px">Close</button>
+    <!-- Step 2: code entry -->
+    <div id="signin-step2" style="display:none">
+      <div class="modal-title">Enter your code</div>
+      <div class="modal-sub">We sent a 6-digit code to <strong id="signin-email-display"></strong>. Enter it below.</div>
+      <input type="text" class="modal-input" id="signin-code" placeholder="123456"
+             maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+             onkeydown="if(event.key==='Enter')doVerifyCode()" style="letter-spacing:0.2em;font-size:20px;text-align:center">
+      <button class="modal-btn primary" id="verify-code-btn" onclick="doVerifyCode()">Sign In</button>
+      <button class="modal-btn ghost" onclick="showSigninStep1()">← Use a different email</button>
     </div>
   </div>
 </div>
