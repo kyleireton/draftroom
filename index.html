@@ -1065,6 +1065,8 @@ let clockTimer     = null;   // setInterval for clock display
 let teamWeek17     = {};     // team abbr -> { opp, isHome } for week 17
 let adpFieldName   = null;   // detected ADP field name (for header)
 let adpRankedCount = 0;      // players with valid ADP
+// Draft-only ADP store — never touches sleeperByName so league data stays clean
+let draftAdpByNorm = {};     // normName → { adp, adpRank }
 let rawCsvText     = '';     // raw CSV text — persisted to Supabase for session restore
 
 // ── Hardcoded 2026 NFL schedule data ──
@@ -1476,23 +1478,19 @@ async function fetchAdpBackground() {
       });
     } else { console.warn('[ADP] FantasyCalc failed:', fcResult.reason?.message); }
 
-    // Merge: reset adp, apply FFC, fill gaps with FC
-    Object.values(sleeperByName).forEach(v => { v.adp = null; v.adpRank = null; });
+    // Merge FFC + FC into draftAdpByNorm — never touch sleeperByName
+    draftAdpByNorm = {};
 
-    function setAdp(key, val, teamHint) {
-      if (sleeperByName[key]) { sleeperByName[key].adp = val; }
-      else { sleeperByName[key] = { adp: val, adpRank: null, bye: null, team: teamHint || null, id: null }; }
-    }
-
-    ffcMap.forEach((adp, key) => setAdp(key, adp));
+    ffcMap.forEach((adp, key) => { draftAdpByNorm[key] = { adp, adpRank: null }; });
 
     const maxFfcAdp = ffcMap.size > 0 ? Math.max(...ffcMap.values()) + 1 : 300;
     fcMap.forEach((rank, key) => {
-      const entry = sleeperByName[key];
-      if (!entry || entry.adp == null) setAdp(key, maxFfcAdp + rank);
+      if (!draftAdpByNorm[key] || draftAdpByNorm[key].adp == null) {
+        draftAdpByNorm[key] = { adp: maxFfcAdp + rank, adpRank: null };
+      }
     });
 
-    const allRanked = Object.values(sleeperByName)
+    const allRanked = Object.values(draftAdpByNorm)
       .filter(v => v.adp != null).sort((a, b) => a.adp - b.adp);
     allRanked.forEach((e, i) => { e.adpRank = i + 1; });
     adpFieldName   = ffcMap.size > 0 ? `FFC ${ffcFormat}` + (fcMap.size > 0 ? '+FC' : '') : (fcMap.size > 0 ? 'FantasyCalc' : 'unavailable');
@@ -1556,23 +1554,26 @@ async function loadSleeperFull() {
     const rawVal = detectedAdpField ? p[detectedAdpField] : null;
     const adpRaw = (rawVal != null && Number(rawVal) < 9999) ? Number(rawVal) : null;
     const key = normName(p.full_name);
-    sleeperByName[key] = {
-      adp:      adpRaw,
-      adpRank:  null,
-      bye:      (p.bye_week != null && p.bye_week > 0) ? p.bye_week : null,
-      team:     p.team || null,
-      pos:      p.position || null,
-      id:       pid,
-      fullName: p.full_name || null,
-    };
+    // Write ADP to draft-only store — sleeperByName gets player info only (no ADP)
+    if (adpRaw != null) draftAdpByNorm[key] = { adp: adpRaw, adpRank: null };
+    // Preserve or create sleeperByName entry without ADP fields
+    if (!sleeperByName[key]) {
+      sleeperByName[key] = {
+        bye:     (p.bye_week != null && p.bye_week > 0) ? p.bye_week : null,
+        team:    p.team || null,
+        pos:     p.position || null,
+        id:      pid,
+        fullName: p.full_name || null,
+      };
+    }
     sleeperById[pid] = key;
   }
 
-  // Compute ordinal ADP rank from Sleeper as initial fallback
-  const ranked = Object.values(sleeperByName)
-    .filter(v => v.adp != null)
-    .sort((a, b) => a.adp - b.adp);
-  ranked.forEach((entry, i) => { entry.adpRank = i + 1; });
+  // Compute ordinal ADP rank from what was written into draftAdpByNorm during the loop
+  const ranked = Object.entries(draftAdpByNorm)
+    .filter(([, v]) => v.adp != null)
+    .sort(([, a], [, b]) => a.adp - b.adp);
+  ranked.forEach(([key], i) => { draftAdpByNorm[key].adpRank = i + 1; });
   adpFieldName   = detectedAdpField || 'sleeper';
   adpRankedCount = ranked.length;
   console.log(`[Sleeper] ${Object.keys(sleeperByName).length} players indexed. ${ranked.length} with ADP via field "${detectedAdpField}".`);
@@ -1745,7 +1746,7 @@ function renderSidebar() {
     const sInfo   = lookupSleeper(p.name);
     const team    = p.team || sInfo?.team || '';  // CSV team takes priority (more current than Sleeper)
     const bye     = p.bye ?? (team ? (NFL_2026.bye[team] ?? null) : null);  // CSV bye > LUT
-    const adpRank = sInfo?.adpRank ?? null;
+    const adpRank = draftAdpByNorm[normName(p.name)]?.adpRank ?? null;
     const wk17data = team ? teamWeek17[team] : null;
     const wk17str  = wk17data
       ? (wk17data.isHome ? 'vs ' : '@ ') + wk17data.opp
@@ -1858,8 +1859,9 @@ function renderBoard() {
       const key1 = normName(p.name);
       const sInfo = lookupSleeper(p.name);
 
-      const adp      = sInfo?.adp ?? null;
-      const adpRank  = sInfo?.adpRank ?? null;  // ordinal rank (mirrors Sleeper "RK" column)
+      const _draftAdp = draftAdpByNorm[normName(p.name)];
+      const adp      = _draftAdp?.adp ?? null;
+      const adpRank  = _draftAdp?.adpRank ?? null;  // ordinal rank (mirrors Sleeper "RK" column)
       const nflTeam  = p.team || sInfo?.team || '';
       const pickStr  = `${p.round}.${String(p.pick).padStart(2,'0')}`;
       const overallPick = (p.round - 1) * tc + p.pick;
@@ -2223,6 +2225,7 @@ let leagueMeta            = {};   // current league meta
 let leagueCsvPlayers      = [];   // CSV rankings uploaded for league view
 let wirePositionFilter    = 'ALL';
 let leagueMyRosterId      = null; // roster_id for currentUser
+let currentLeagueId       = null; // tracks which league is loaded — skip re-fetch on same league
 
 // ── Supabase profile helpers ──
 // NOTE: Run this SQL once in your Supabase SQL editor:
@@ -2379,13 +2382,23 @@ async function ensureSleeperDb() {
 // ── League detail load ──
 async function loadLeagueDetail(lg) {
   showScreen('league-detail');
+
+  // If returning to the same league already in memory, just re-render — no fetch needed
+  if (lg.league_id === currentLeagueId && leagueRosters.length > 0) {
+    leagueMeta = lg;
+    renderLeagueDetail();
+    renderWaiverWire();
+    return;
+  }
+
+  currentLeagueId = lg.league_id;
   leagueMeta = lg;
   document.getElementById('ld-league-name').textContent = lg.name;
   const scoring = lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std';
   document.getElementById('ld-meta').textContent = `${lg.total_rosters}-team · ${scoring}`;
   document.getElementById('ld-team-grid').innerHTML = '<div style="color:#374151;font-size:12px;padding:20px">Loading rosters…</div>';
   document.getElementById('wire-list').innerHTML = '';
-  // Reset rankings status; try to load saved rankings for this league
+  // Clear rankings for a fresh league load; try to reload from Supabase
   leagueCsvPlayers = [];
   const statusEl = document.getElementById('ld-rankings-status');
   if (statusEl) { statusEl.textContent = ''; statusEl.style.color = '#374151'; }
