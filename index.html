@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.25, maximum-scale=5.0, user-scalable=yes">
 <title>The Draft Room</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -270,6 +270,11 @@ body {
   50%       { box-shadow: 0 0 0 2.5px #fbbf24, 0 0 18px #f59e0b88; }
 }
 .card-onclock { animation: clockPulse 1.5s ease-in-out infinite; }
+/* Drafted card at current pick — lift opacity so glow is visible */
+.pick-card.card-onclock.drafted {
+  opacity: 0.55 !important;
+  filter: grayscale(50%) brightness(0.7) !important;
+}
 .pick-card.empty {
   background: #161b24;
   border: 1px dashed #1e2530;
@@ -1528,7 +1533,7 @@ function renderBoard() {
 
       const adpDisplay = adpRank != null ? `<span class="card-adp-val">${adpRank}</span>` : `<span class="card-adp-na">—</span>`;
 
-      const isOnClock = !isDrafted && overallPick === currentPickNo;
+      const isOnClock = overallPick === currentPickNo;
 
       html += `
         <div class="pick-card ${bg}${isDrafted ? ' drafted' : ''}${isOnClock ? ' card-onclock' : ''}">
