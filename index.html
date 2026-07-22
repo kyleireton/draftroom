@@ -2369,12 +2369,18 @@ async function loadLeagueDetail(lg) {
   document.getElementById('ld-meta').textContent = `${lg.total_rosters}-team · ${scoring}`;
   document.getElementById('ld-team-grid').innerHTML = '<div style="color:#374151;font-size:12px;padding:20px">Loading rosters…</div>';
   document.getElementById('wire-list').innerHTML = '';
+  // Reset rankings status; try to load saved rankings for this league
+  leagueCsvPlayers = [];
+  const statusEl = document.getElementById('ld-rankings-status');
+  if (statusEl) { statusEl.textContent = ''; statusEl.style.color = '#374151'; }
+  document.querySelector('.ld-upload-btn').textContent = '↑ Upload rankings';
 
   try {
-    // Ensure player DB + fetch everything else in parallel
+    // Ensure player DB + load saved rankings + fetch rosters all in parallel
     const season = new Date().getFullYear();
-    const [, stateRes, rosterRes, userRes] = await Promise.all([
+    const [, , stateRes, rosterRes, userRes] = await Promise.all([
       ensureSleeperDb(),
+      loadLeagueRankings().catch(() => false),
       fetch('https://api.sleeper.app/v1/state/nfl'),
       fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/rosters`),
       fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/users`),
@@ -2420,16 +2426,58 @@ async function loadLeagueDetail(lg) {
 }
 
 // ── CSV upload for league view ──
+function setRankingsStatus(players, updatedAt) {
+  const el = document.getElementById('ld-rankings-status');
+  if (!el) return;
+  const dateStr = updatedAt ? ` · ${new Date(updatedAt).toLocaleDateString()}` : '';
+  el.textContent = `✓ ${players.length} ranked${dateStr}`;
+  el.style.color = '#4ade80';
+  document.querySelector('.ld-upload-btn').textContent = '↑ Update rankings';
+}
+
+async function saveLeagueRankings(csvText) {
+  if (!currentUser || !leagueMeta?.league_id) return;
+  try {
+    await sb.from('league_rankings').upsert({
+      user_id:    currentUser.id,
+      league_id:  leagueMeta.league_id,
+      csv_data:   csvText,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,league_id' });
+  } catch(e) { console.warn('[Rankings] save failed:', e.message); }
+}
+
+async function loadLeagueRankings() {
+  if (!currentUser || !leagueMeta?.league_id) return false;
+  try {
+    const { data } = await sb.from('league_rankings')
+      .select('csv_data, updated_at')
+      .eq('user_id',   currentUser.id)
+      .eq('league_id', leagueMeta.league_id)
+      .single();
+    if (!data?.csv_data) return false;
+    return new Promise(resolve => {
+      parseCSVText(data.csv_data, players => {
+        leagueCsvPlayers = players;
+        setRankingsStatus(players, data.updated_at);
+        resolve(true);
+      }, true);
+    });
+  } catch(e) { return false; }
+}
+
 function onLeagueCsvUpload(evt) {
   const file = evt.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
-    parseCSVText(e.target.result, (players) => {
+    const csvText = e.target.result;
+    parseCSVText(csvText, async (players) => {
       leagueCsvPlayers = players;
-      document.getElementById('ld-rankings-status').textContent = `✓ ${players.length} players ranked`;
+      setRankingsStatus(players, new Date().toISOString());
+      await saveLeagueRankings(csvText);
       renderLeagueDetail();
-    }, true); // true = return players to callback instead of setting csvPlayers global
+    }, true);
   };
   reader.readAsText(file);
 }
