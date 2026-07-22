@@ -1655,7 +1655,11 @@ async function loadSession(id) {
   if (rawCsvText) parseCSVText(rawCsvText);
   setTeams(teamCount);
   setScoring(scoringFormat);
-  document.getElementById('draft-url').value = draftId;
+  // Reconstruct the full URL so onUrlInput parses it exactly as if the user typed it
+  const restoredUrl = platform === 'sleeper' && draftId
+    ? `https://sleeper.app/draft/nfl/${draftId}`
+    : draftId || '';
+  document.getElementById('draft-url').value = restoredUrl;
   onUrlInput();
   closeMyDrafts();
   showToast(`Loaded: ${data.name}`);
