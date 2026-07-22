@@ -846,6 +846,7 @@ body {
 <div id="league-detail-screen">
   <div class="ld-header">
     <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
+    <button class="ld-back" onclick="goToDraftFromLeague()" style="margin-left:8px">Draft Room →</button>
     <div>
       <div class="ld-league-name" id="ld-league-name">—</div>
       <div class="ld-meta" id="ld-meta"></div>
@@ -977,6 +978,7 @@ body {
                oninput="setManualZoom(this.value)">
         <span class="zoom-pct" id="zoom-pct">100%</span>
       </div>
+      <button class="back-btn" onclick="goToLeagues()" style="margin-right:4px">Leagues</button>
       <button class="back-btn" onclick="goBack()">← New Upload</button>
     </div>
   </div>
@@ -1023,7 +1025,16 @@ function showScreen(name) {
     el.style.display = isTarget ? (id === 'board-screen' || id === 'league-detail-screen' ? 'flex' : '') : 'none';
   });
 }
+let boardIsActive = false; // true once a draft board has been successfully loaded
+
 function goToDraft() { showScreen('upload'); }
+function goToDraftFromLeague() {
+  if (boardIsActive) {
+    showScreen('board');
+  } else {
+    showScreen('upload');
+  }
+}
 function goToLeagues() {
   if (!currentUser) { openSignIn(); _pendingAfterSignIn = 'leagues'; return; }
   showScreen('leagues');
@@ -1366,6 +1377,7 @@ function toggle3RR() {
 
 function goBack() {
   stopAutoSync();
+  boardIsActive = false;
   showScreen('upload');
   document.getElementById('gen-btn').style.display = '';
   document.getElementById('loading').style.display = 'none';
@@ -1385,6 +1397,7 @@ async function generateBoard() {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('upload-screen').style.display = 'none';
     document.getElementById('board-screen').style.display = 'flex';
+    boardIsActive = true;
     renderBoard();
     startAutoSync();
     setTimeout(() => { applyBoardZoom(); showSavePrompt(); }, 120);
