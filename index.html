@@ -1066,7 +1066,8 @@ let teamWeek17     = {};     // team abbr -> { opp, isHome } for week 17
 let adpFieldName   = null;   // detected ADP field name (for header)
 let adpRankedCount = 0;      // players with valid ADP
 // Draft-only ADP store — never touches sleeperByName so league data stays clean
-let draftAdpByNorm = {};     // normName → { adp, adpRank }
+let draftAdpByNorm    = {};   // normName → { adp, adpRank }
+let _sleeperRawPlayers = null; // cached raw /v1/players/nfl response — shared between draft + league
 let rawCsvText     = '';     // raw CSV text — persisted to Supabase for session restore
 
 // ── Hardcoded 2026 NFL schedule data ──
@@ -1522,24 +1523,20 @@ async function loadSleeperFull() {
     console.log(`[Sleeper] Format: ${isSuperflex ? 'superflex' : '1QB'}, scoring: ${draftMeta.metadata?.scoring_type}`);
   }
 
-  // 2. All players — includes adp_half, team, full_name, player_id
+  // 2. Shared player DB — reuse ensureSleeperDb (one fetch, never wipes sleeperByName)
   setMsg('Downloading Sleeper player database (may take a moment)…');
-  const pRes = await fetch('https://api.sleeper.app/v1/players/nfl');
-  if (!pRes.ok) throw new Error('Could not reach Sleeper player database.');
-  const allPlayers = await pRes.json();
+  await ensureSleeperDb(); // no-op if already loaded; populates _sleeperRawPlayers
+  const allPlayers = _sleeperRawPlayers || {};
 
-  sleeperByName = {};
-  sleeperById   = {};
-
-  // Detect which ADP field Sleeper actually has data in (varies by API version)
+  // Detect ADP field and build draftAdpByNorm — draft-only, never touches sleeperByName
+  draftAdpByNorm = {};
   const adpCandidates = scoringFormat === 'ppr' ? ['adp_ppr','adp','adp_half','adp_std']
                       : scoringFormat === 'std' ? ['adp_std','adp','adp_half','adp_ppr']
                       :                           ['adp_half','adp','adp_ppr','adp_std'];
   let detectedAdpField = null;
 
-  for (const [pid, p] of Object.entries(allPlayers)) {
+  for (const [, p] of Object.entries(allPlayers)) {
     if (!p.full_name) continue;
-
     if (!detectedAdpField && ['QB','RB','WR','TE'].includes(p.position)) {
       for (const f of adpCandidates) {
         const v = Number(p[f]);
@@ -1550,33 +1547,18 @@ async function loadSleeperFull() {
         }
       }
     }
-
     const rawVal = detectedAdpField ? p[detectedAdpField] : null;
     const adpRaw = (rawVal != null && Number(rawVal) < 9999) ? Number(rawVal) : null;
-    const key = normName(p.full_name);
-    // Write ADP to draft-only store — sleeperByName gets player info only (no ADP)
-    if (adpRaw != null) draftAdpByNorm[key] = { adp: adpRaw, adpRank: null };
-    // Preserve or create sleeperByName entry without ADP fields
-    if (!sleeperByName[key]) {
-      sleeperByName[key] = {
-        bye:     (p.bye_week != null && p.bye_week > 0) ? p.bye_week : null,
-        team:    p.team || null,
-        pos:     p.position || null,
-        id:      pid,
-        fullName: p.full_name || null,
-      };
-    }
-    sleeperById[pid] = key;
+    if (adpRaw != null) draftAdpByNorm[normName(p.full_name)] = { adp: adpRaw, adpRank: null };
   }
 
-  // Compute ordinal ADP rank from what was written into draftAdpByNorm during the loop
   const ranked = Object.entries(draftAdpByNorm)
     .filter(([, v]) => v.adp != null)
     .sort(([, a], [, b]) => a.adp - b.adp);
   ranked.forEach(([key], i) => { draftAdpByNorm[key].adpRank = i + 1; });
   adpFieldName   = detectedAdpField || 'sleeper';
   adpRankedCount = ranked.length;
-  console.log(`[Sleeper] ${Object.keys(sleeperByName).length} players indexed. ${ranked.length} with ADP via field "${detectedAdpField}".`);
+  console.log(`[Sleeper] ${Object.keys(sleeperByName).length} players indexed. ${ranked.length} with ADP via "${detectedAdpField}".`);
 
   // 3. Week 17 schedule — hardcoded 2026 data
   teamWeek17 = NFL_2026.week17;
@@ -2356,6 +2338,7 @@ async function ensureSleeperDb() {
   _sleeperDbLoading = (async () => {
     const res = await fetch('https://api.sleeper.app/v1/players/nfl');
     const all = await res.json();
+    _sleeperRawPlayers = all; // cache for draft ADP detection
     for (const [pid, p] of Object.entries(all)) {
       if (!p.full_name) continue;
       const pos = offensePos(p);
