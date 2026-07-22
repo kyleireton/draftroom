@@ -405,6 +405,14 @@ body {
 /* board-wrap now scrolls both axes inside the flex body */
 .board-wrap { flex: 1; overflow: auto; padding: 10px 12px 24px; }
 
+/* ── ZOOM CONTROL ── */
+.zoom-control { display: flex; align-items: center; gap: 5px; }
+.zoom-slider {
+  width: 72px; cursor: pointer; accent-color: #4f7ef8;
+  height: 3px; border-radius: 2px;
+}
+.zoom-pct { font-size: 11px; color: #4b5563; width: 34px; text-align: right; }
+
 /* ── AUTH BAR ── */
 .auth-bar {
   position: fixed; top: 14px; right: 18px;
@@ -564,13 +572,14 @@ body {
   </div>
 
   <div class="toggle-row">
-    <span class="toggle-label">What format are your rankings in?</span>
+    <span class="toggle-label">ADP Format</span>
     <div class="team-toggle" id="upload-scoring-toggle">
       <button class="team-btn active" data-scoring="half_ppr" onclick="setScoring('half_ppr')">Half-PPR</button>
       <button class="team-btn" data-scoring="ppr" onclick="setScoring('ppr')">PPR</button>
       <button class="team-btn" data-scoring="std" onclick="setScoring('std')">Standard</button>
     </div>
   </div>
+  <div class="upload-subtitle" style="font-size:11px;color:#374151;margin-top:-14px">Match your league's scoring — only affects which ADP data is fetched, not your rankings.</div>
 
   <button class="gen-btn" id="gen-btn" onclick="generateBoard()">Generate Board</button>
 
@@ -613,6 +622,12 @@ body {
         <button class="team-btn active" data-scoring="half_ppr" onclick="setScoringBoard('half_ppr')">½PPR</button>
         <button class="team-btn" data-scoring="ppr" onclick="setScoringBoard('ppr')">PPR</button>
         <button class="team-btn" data-scoring="std" onclick="setScoringBoard('std')">Std</button>
+      </div>
+      <div class="zoom-control">
+        <span class="ctrl-label">Zoom:</span>
+        <input type="range" class="zoom-slider" id="zoom-slider" min="25" max="100" value="100"
+               oninput="setManualZoom(this.value)">
+        <span class="zoom-pct" id="zoom-pct">100%</span>
       </div>
       <button class="back-btn" onclick="goBack()">← New Upload</button>
     </div>
@@ -841,7 +856,7 @@ function loadCSV(file) {
 }
 
 // Reparse from raw text (used when restoring a saved session)
-function parseCSVText(text) {
+function parseCSVText(text, onComplete) {
   Papa.parse(text, {
     header: true, skipEmptyLines: true,
     complete: result => {
@@ -873,6 +888,7 @@ function parseCSVText(text) {
       document.getElementById('csv-done-msg').textContent = `✓ ${csvPlayers.length} players loaded`;
       csvDrop.classList.add('done');
       checkReady();
+      if (onComplete) onComplete();
     }
   });
 }
@@ -989,7 +1005,7 @@ async function generateBoard() {
     document.getElementById('board-screen').style.display = 'flex';
     renderBoard();
     startAutoSync();
-    setTimeout(showSavePrompt, 1500); // nudge to save after board appears
+    setTimeout(() => { applyBoardZoom(); showSavePrompt(); }, 120);
   } catch (err) {
     console.error(err);
     document.getElementById('loading').style.display = 'none';
@@ -1474,6 +1490,59 @@ function renderBoard() {
   renderSidebar();
 }
 
+// ── Board zoom ──
+function applyBoardZoom() {
+  const grid = document.getElementById('board-grid');
+  if (!grid || !grid.children.length) return;
+
+  // Reset to natural size first so we can measure accurately
+  grid.style.zoom = 1;
+
+  requestAnimationFrame(() => {
+    const sidebar  = document.getElementById('board-sidebar');
+    const headerEl = document.querySelector('.board-header');
+    const sidebarW = sidebar ? sidebar.offsetWidth : 0;
+    const headerH  = headerEl ? headerEl.offsetHeight : 50;
+    const availW   = window.innerWidth  - sidebarW - 24;
+    const availH   = window.innerHeight - headerH  - 40;
+    const gridW    = grid.scrollWidth;
+    const gridH    = grid.scrollHeight;
+    if (!gridW || !gridH) return;
+
+    let zoom;
+    if (window.innerWidth <= 700) {
+      // Mobile: show ~6 columns (half a 12-team board), user can scroll for rest
+      const colsToShow = Math.min(teamCount, 6);
+      zoom = (availW / gridW) * (teamCount / colsToShow);
+      zoom = Math.min(1, zoom);
+    } else {
+      // Desktop: fit the entire board in the viewport
+      zoom = Math.min(availW / gridW, availH / gridH, 1);
+    }
+
+    zoom = Math.max(0.25, zoom);
+    grid.style.zoom = zoom;
+    const slider = document.getElementById('zoom-slider');
+    const pct    = document.getElementById('zoom-pct');
+    if (slider) slider.value = Math.round(zoom * 100);
+    if (pct)    pct.textContent = Math.round(zoom * 100) + '%';
+  });
+}
+
+function setManualZoom(val) {
+  const grid = document.getElementById('board-grid');
+  if (grid) grid.style.zoom = val / 100;
+  const pct = document.getElementById('zoom-pct');
+  if (pct) pct.textContent = val + '%';
+}
+
+// Re-fit on window resize (debounced)
+let _zoomResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_zoomResizeTimer);
+  _zoomResizeTimer = setTimeout(applyBoardZoom, 150);
+});
+
 // ── Supabase ──
 const SUPABASE_URL = 'https://vebpvmerzpoimlgaibtp.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_mB128xPNpyaj6xYoUNut8A_QU9I9qx9';
@@ -1652,7 +1721,9 @@ async function loadSession(id) {
   scoringFormat = data.scoring_format || 'half_ppr';
   isSuperflex   = data.is_superflex || false;
   rawCsvText    = data.csv_data || '';
-  if (rawCsvText) parseCSVText(rawCsvText);
+  if (rawCsvText) parseCSVText(rawCsvText, () => {
+    if (draftId || espnLeagueId) generateBoard();
+  });
   setTeams(teamCount);
   setScoring(scoringFormat);
   // Reconstruct the full URL so onUrlInput parses it exactly as if the user typed it
