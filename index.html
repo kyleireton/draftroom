@@ -283,8 +283,8 @@ body {
 /* Card body */
 .card-body { flex: 1; padding: 6px 7px 5px; display: flex; flex-direction: column; min-width: 0; gap: 2px; }
 .card-name { line-height: 1.15; }
-.card-fname { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-lname { font-size: 12px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-fname { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.75); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-lname { font-size: 14px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-pos-team { display: flex; align-items: center; gap: 5px; }
 .pos-badge {
   font-size: 9px; font-weight: 800;
@@ -416,9 +416,10 @@ body {
 /* ── AUTH BAR ── */
 .auth-bar {
   position: fixed; top: 14px; right: 18px;
-  display: flex; align-items: center; gap: 8px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
   z-index: 200;
 }
+.auth-btn-row { display: flex; align-items: center; gap: 8px; }
 .auth-chip {
   background: #1a1f2a; border: 1px solid #2d3748; border-radius: 20px;
   padding: 6px 14px; font-size: 12px; font-weight: 600; color: #64748b;
@@ -427,7 +428,21 @@ body {
 .auth-chip:hover { border-color: #4f7ef8; color: #e2e8f0; }
 .auth-chip.accent { background: #1e3358; border-color: #3b6fe8; color: #93c5fd; }
 .auth-chip.accent:hover { background: #1d4ed8; color: #fff; }
-.auth-email-lbl { font-size: 11px; color: #374151; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-email-box {
+  background: #1a1f2a; border: 1px solid #2d3748; border-radius: 8px;
+  padding: 4px 12px; font-size: 11px; color: #4b5563;
+  max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* tiny spinner for ADP background load */
+.spinner-xs {
+  display: inline-block; width: 9px; height: 9px;
+  border: 1.5px solid #2d3748; border-top-color: #4f7ef8;
+  border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle;
+}
+.adp-status {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; color: #374151; margin-left: 6px;
+}
 
 /* ── MODAL OVERLAY ── */
 .modal-overlay {
@@ -604,6 +619,10 @@ body {
         <div class="spinner-sm" id="sync-spinner"></div>
         <span class="sync-clock" id="sync-clock">—</span>
         <button class="sync-btn" id="sync-btn" onclick="manualSync()">↻ Sync</button>
+        <span class="adp-status" id="adp-status" style="display:none">
+          <span class="spinner-xs" id="adp-spinner"></span>
+          <span id="adp-status-lbl">ADP loading…</span>
+        </span>
       </div>
 
       <span class="ctrl-label" style="margin-left:4px">Rounds:</span>
@@ -1006,6 +1025,8 @@ async function generateBoard() {
     renderBoard();
     startAutoSync();
     setTimeout(() => { applyBoardZoom(); showSavePrompt(); }, 120);
+    // ADP fetches in background — board is already live
+    fetchAdpBackground();
   } catch (err) {
     console.error(err);
     document.getElementById('loading').style.display = 'none';
@@ -1015,7 +1036,100 @@ async function generateBoard() {
   }
 }
 
-// Full load: draft meta + all players + ADP + picks
+// Multi-proxy fetcher: direct → allorigins/raw → allorigins/get
+async function corsGet(url) {
+  const tries = [
+    () => fetch(url),
+    () => fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`),
+    () => fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`).then(async r => {
+            const w = await r.json(); return new Response(w.contents, { status: 200 }); }),
+  ];
+  for (let i = 0; i < tries.length; i++) {
+    try {
+      const r = await tries[i]();
+      if (r && r.ok) { console.log(`[ADP] strategy ${i} ok: ${url.split('?')[0]}`); return r; }
+    } catch(e) { console.warn(`[ADP] strategy ${i} failed:`, e.message); }
+  }
+  throw new Error('all CORS strategies exhausted');
+}
+
+// ADP background fetch — runs after board is already visible
+async function fetchAdpBackground() {
+  const statusEl  = document.getElementById('adp-status');
+  const spinnerEl = document.getElementById('adp-spinner');
+  const lblEl     = document.getElementById('adp-status-lbl');
+  if (statusEl) statusEl.style.display = '';
+
+  try {
+    const ffcFormat = scoringFormat === 'ppr' ? 'ppr' : scoringFormat === 'std' ? 'standard' : 'half-ppr';
+    const fcPpr     = scoringFormat === 'ppr' ? 1 : scoringFormat === 'std' ? 0 : 0.5;
+    const ffcUrl    = `https://fantasyfootballcalculator.com/api/v1/adp/${ffcFormat}?teams=${teamCount}&year=2026`;
+    const fcUrl     = `https://api.fantasycalc.com/values/current?isDynasty=false&numQbs=1&ppr=${fcPpr}&numTeams=${teamCount}`;
+
+    // Fetch both in parallel; failures are non-fatal
+    const [ffcResult, fcResult] = await Promise.allSettled([
+      corsGet(ffcUrl).then(r => r.json()),
+      corsGet(fcUrl).then(r => r.json()),
+    ]);
+
+    // Build lookup maps: normName → adp value
+    const ffcMap = new Map();
+    const fcMap  = new Map();
+
+    if (ffcResult.status === 'fulfilled') {
+      const d = ffcResult.value;
+      const players = Array.isArray(d) ? d : (d.players || []);
+      console.log(`[ADP] FFC: ${players.length} players. Sample:`, players[0]);
+      players.forEach(fp => {
+        if (!fp.name || fp.adp == null) return;
+        ffcMap.set(normName(fp.name), Number(fp.adp));
+      });
+    } else { console.warn('[ADP] FFC failed:', ffcResult.reason?.message); }
+
+    if (fcResult.status === 'fulfilled') {
+      const players = Array.isArray(fcResult.value) ? fcResult.value : [];
+      console.log(`[ADP] FC: ${players.length} players. Sample:`, players[0]);
+      players.forEach((fp, i) => {
+        const name = fp.player?.name || fp.name;
+        if (!name) return;
+        const rank = fp.overallRank ?? fp.redraftRank ?? (i + 1);
+        fcMap.set(normName(name), rank);
+      });
+    } else { console.warn('[ADP] FantasyCalc failed:', fcResult.reason?.message); }
+
+    // Merge: reset adp, apply FFC, fill gaps with FC
+    Object.values(sleeperByName).forEach(v => { v.adp = null; v.adpRank = null; });
+
+    function setAdp(key, val, teamHint) {
+      if (sleeperByName[key]) { sleeperByName[key].adp = val; }
+      else { sleeperByName[key] = { adp: val, adpRank: null, bye: null, team: teamHint || null, id: null }; }
+    }
+
+    ffcMap.forEach((adp, key) => setAdp(key, adp));
+
+    const maxFfcAdp = ffcMap.size > 0 ? Math.max(...ffcMap.values()) + 1 : 300;
+    fcMap.forEach((rank, key) => {
+      const entry = sleeperByName[key];
+      if (!entry || entry.adp == null) setAdp(key, maxFfcAdp + rank);
+    });
+
+    const allRanked = Object.values(sleeperByName)
+      .filter(v => v.adp != null).sort((a, b) => a.adp - b.adp);
+    allRanked.forEach((e, i) => { e.adpRank = i + 1; });
+    adpFieldName   = ffcMap.size > 0 ? `FFC ${ffcFormat}` + (fcMap.size > 0 ? '+FC' : '') : (fcMap.size > 0 ? 'FantasyCalc' : 'unavailable');
+    adpRankedCount = allRanked.length;
+    console.log(`[ADP] Merged: ${ffcMap.size} FFC + ${fcMap.size} FC players → ${allRanked.length} ranked total`);
+
+    // Re-render board with real ADP data now available
+    renderBoard();
+  } catch (err) {
+    console.warn('[ADP] background fetch error:', err.message);
+  } finally {
+    if (statusEl) statusEl.style.display = 'none';
+  }
+}
+
+// Full load: draft meta + all players + picks (ADP fetched separately in background)
 async function loadSleeperFull() {
   const setMsg = m => document.getElementById('loading-msg').textContent = m;
 
@@ -1041,7 +1155,6 @@ async function loadSleeperFull() {
   sleeperById   = {};
 
   // Detect which ADP field Sleeper actually has data in (varies by API version)
-  // Priority: format-specific first, then general adp, then search_rank as last resort
   const adpCandidates = scoringFormat === 'ppr' ? ['adp_ppr','adp','adp_half','adp_std']
                       : scoringFormat === 'std' ? ['adp_std','adp','adp_half','adp_ppr']
                       :                           ['adp_half','adp','adp_ppr','adp_std'];
@@ -1050,14 +1163,12 @@ async function loadSleeperFull() {
   for (const [pid, p] of Object.entries(allPlayers)) {
     if (!p.full_name) continue;
 
-    // Auto-detect the first field with a real value (not null/undefined/sentinel)
     if (!detectedAdpField && ['QB','RB','WR','TE'].includes(p.position)) {
       for (const f of adpCandidates) {
         const v = Number(p[f]);
         if (p[f] != null && !isNaN(v) && v > 0 && v < 9999) {
           detectedAdpField = f;
-          console.log(`[Sleeper] ADP field detected: "${f}" (value=${v}). All available rank/adp keys:`,
-            Object.keys(p).filter(k => k.includes('adp') || k.includes('rank')));
+          console.log(`[Sleeper] ADP field detected: "${f}" (value=${v}).`);
           break;
         }
       }
@@ -1085,93 +1196,11 @@ async function loadSleeperFull() {
   adpRankedCount = ranked.length;
   console.log(`[Sleeper] ${Object.keys(sleeperByName).length} players indexed. ${ranked.length} with ADP via field "${detectedAdpField}".`);
 
-  // 3. ADP — fetch FFC + FantasyCalc concurrently, merge (FFC wins, FC fills gaps)
-  setMsg('Fetching ADP data…');
-
-  // Multi-proxy fetcher: direct → allorigins/raw → allorigins/get
-  async function corsGet(url) {
-    const tries = [
-      () => fetch(url),
-      () => fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`),
-      () => fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`).then(async r => {
-              const w = await r.json(); return new Response(w.contents, { status: 200 }); }),
-    ];
-    for (let i = 0; i < tries.length; i++) {
-      try {
-        const r = await tries[i]();
-        if (r && r.ok) { console.log(`[ADP] strategy ${i} ok: ${url.split('?')[0]}`); return r; }
-      } catch(e) { console.warn(`[ADP] strategy ${i} failed:`, e.message); }
-    }
-    throw new Error('all CORS strategies exhausted');
-  }
-
-  const ffcFormat = scoringFormat === 'ppr' ? 'ppr' : scoringFormat === 'std' ? 'standard' : 'half-ppr';
-  const fcPpr     = scoringFormat === 'ppr' ? 1 : scoringFormat === 'std' ? 0 : 0.5;
-  const ffcUrl    = `https://fantasyfootballcalculator.com/api/v1/adp/${ffcFormat}?teams=${teamCount}&year=2026`;
-  const fcUrl     = `https://api.fantasycalc.com/values/current?isDynasty=false&numQbs=1&ppr=${fcPpr}&numTeams=${teamCount}`;
-
-  // Fetch both in parallel; failures are non-fatal
-  const [ffcResult, fcResult] = await Promise.allSettled([
-    corsGet(ffcUrl).then(r => r.json()),
-    corsGet(fcUrl).then(r => r.json()),
-  ]);
-
-  // Build lookup maps: normName → adp value
-  const ffcMap = new Map(); // normName → decimal ADP
-  const fcMap  = new Map(); // normName → FC overallRank (used as relative order)
-
-  if (ffcResult.status === 'fulfilled') {
-    const d = ffcResult.value;
-    const players = Array.isArray(d) ? d : (d.players || []);
-    console.log(`[ADP] FFC: ${players.length} players. Sample:`, players[0]);
-    players.forEach(fp => {
-      if (!fp.name || fp.adp == null) return;
-      ffcMap.set(normName(fp.name), Number(fp.adp));
-    });
-  } else { console.warn('[ADP] FFC failed:', ffcResult.reason?.message); }
-
-  if (fcResult.status === 'fulfilled') {
-    const players = Array.isArray(fcResult.value) ? fcResult.value : [];
-    console.log(`[ADP] FC: ${players.length} players. Sample:`, players[0]);
-    players.forEach((fp, i) => {
-      const name = fp.player?.name || fp.name;
-      if (!name) return;
-      const rank = fp.overallRank ?? fp.redraftRank ?? (i + 1);
-      fcMap.set(normName(name), rank);
-    });
-  } else { console.warn('[ADP] FantasyCalc failed:', fcResult.reason?.message); }
-
-  // Merge: reset adp, apply FFC, fill gaps with FC
-  Object.values(sleeperByName).forEach(v => { v.adp = null; v.adpRank = null; });
-
-  // Helper: write adp into sleeperByName (create entry if missing)
-  function setAdp(key, val, teamHint) {
-    if (sleeperByName[key]) { sleeperByName[key].adp = val; }
-    else { sleeperByName[key] = { adp: val, adpRank: null, bye: null, team: teamHint || null, id: null }; }
-  }
-
-  ffcMap.forEach((adp, key) => setAdp(key, adp));
-
-  // FC fills any player still null; offset ensures FC-only players sort after all FFC players
-  const maxFfcAdp = ffcMap.size > 0 ? Math.max(...ffcMap.values()) + 1 : 300;
-  fcMap.forEach((rank, key) => {
-    const entry = sleeperByName[key];
-    if (!entry || entry.adp == null) setAdp(key, maxFfcAdp + rank);
-  });
-
-  // Compute final ordinal ranks
-  const allRanked = Object.values(sleeperByName)
-    .filter(v => v.adp != null).sort((a, b) => a.adp - b.adp);
-  allRanked.forEach((e, i) => { e.adpRank = i + 1; });
-  adpFieldName   = ffcMap.size > 0 ? `FFC ${ffcFormat}` + (fcMap.size > 0 ? '+FC' : '') : (fcMap.size > 0 ? 'FantasyCalc' : 'unavailable');
-  adpRankedCount = allRanked.length;
-  console.log(`[ADP] Merged: ${ffcMap.size} FFC + ${fcMap.size} FC players → ${allRanked.length} ranked total`);
-
-  // 4. Week 17 schedule — hardcoded 2026 data (Sleeper API not yet available pre-season)
+  // 3. Week 17 schedule — hardcoded 2026 data
   teamWeek17 = NFL_2026.week17;
   console.log(`[Sleeper] Week 17: ${Object.keys(teamWeek17).length} teams from hardcoded 2026 LUT`);
 
-  // 5. Initial picks
+  // 4. Initial picks
   setMsg('Fetching draft picks…');
   await fetchPicks();
 }
@@ -1511,21 +1540,33 @@ function applyBoardZoom() {
 
     let zoom;
     if (window.innerWidth <= 700) {
-      // Mobile: show ~6 columns (half a 12-team board), user can scroll for rest
-      const colsToShow = Math.min(teamCount, 6);
-      zoom = (availW / gridW) * (teamCount / colsToShow);
-      zoom = Math.min(1, zoom);
+      // Mobile: show ~5 rows at near-natural card size, user scrolls horizontally
+      const rounds = parseInt(document.getElementById('rounds-select')?.value || 15, 10);
+      const rowH   = gridH / rounds;
+      zoom = Math.min(1.0, (availH * 0.9) / (5 * rowH));
+      zoom = Math.max(0.5, zoom);
     } else {
-      // Desktop: fit the entire board in the viewport
+      // Desktop: fit the entire board in the viewport, min 0.65 so cards stay readable
       zoom = Math.min(availW / gridW, availH / gridH, 1);
+      zoom = Math.max(0.65, zoom);
     }
 
-    zoom = Math.max(0.25, zoom);
     grid.style.zoom = zoom;
     const slider = document.getElementById('zoom-slider');
     const pct    = document.getElementById('zoom-pct');
     if (slider) slider.value = Math.round(zoom * 100);
     if (pct)    pct.textContent = Math.round(zoom * 100) + '%';
+
+    // Mobile: auto-scroll so the active round is centered
+    if (window.innerWidth <= 700) {
+      const nextPick = draftedPicks.size + 1;
+      const activeRound = Math.ceil(nextPick / teamCount);
+      const rounds      = parseInt(document.getElementById('rounds-select')?.value || 15, 10);
+      const rowH        = gridH / rounds;
+      const targetY     = Math.max(0, (activeRound - 2) * rowH * zoom);
+      const wrapper     = document.getElementById('board-grid-wrapper') || grid.parentElement;
+      if (wrapper) wrapper.scrollTop = targetY;
+    }
   });
 }
 
@@ -1546,16 +1587,19 @@ window.addEventListener('resize', () => {
 // ── Supabase ──
 const SUPABASE_URL = 'https://vebpvmerzpoimlgaibtp.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_mB128xPNpyaj6xYoUNut8A_QU9I9qx9';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true }
+});
 let currentUser      = null;
 let currentSessionId = null;
 
-// Initialize auth on page load — handles magic link redirect automatically
-(async () => {
+// Initialize auth after DOM is fully ready — avoids timing bug where IIFE
+// runs before auth bar elements exist in the document
+window.addEventListener('load', async () => {
   const { data: { session } } = await sb.auth.getSession();
   currentUser = session?.user ?? null;
   updateAuthUI();
-})();
+});
 
 sb.auth.onAuthStateChange((event, session) => {
   currentUser = session?.user ?? null;
@@ -1571,7 +1615,8 @@ function updateAuthUI() {
   const on = !!currentUser;
   document.querySelectorAll('.auth-signed-in').forEach(el => el.style.display = on ? '' : 'none');
   document.querySelectorAll('.auth-signed-out').forEach(el => el.style.display = on ? 'none' : '');
-  if (on) document.getElementById('auth-email-lbl').textContent = currentUser.email;
+  const box = document.getElementById('auth-email-box');
+  if (on && box) box.textContent = currentUser.email;
 }
 
 // Sign-in modal
@@ -1788,10 +1833,12 @@ function showToast(msg) {
 
 <!-- ── AUTH BAR (fixed top-right) ── -->
 <div class="auth-bar">
-  <span class="auth-email-lbl auth-signed-in" id="auth-email-lbl" style="display:none"></span>
-  <button class="auth-chip auth-signed-in" style="display:none" onclick="openMyDrafts()">My Drafts</button>
-  <button class="auth-chip auth-signed-in" style="display:none" onclick="authSignOut()">Sign Out</button>
-  <button class="auth-chip accent auth-signed-out" onclick="openSignIn()">Sign in to save</button>
+  <div class="auth-btn-row">
+    <button class="auth-chip auth-signed-in" style="display:none" onclick="openMyDrafts()">My Drafts</button>
+    <button class="auth-chip auth-signed-in" style="display:none" onclick="authSignOut()">Sign Out</button>
+    <button class="auth-chip accent auth-signed-out" onclick="openSignIn()">Sign in to save</button>
+  </div>
+  <div class="auth-email-box auth-signed-in" id="auth-email-box" style="display:none"></div>
 </div>
 
 <!-- ── SIGN-IN MODAL ── -->
