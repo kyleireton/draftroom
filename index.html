@@ -14,6 +14,226 @@ body {
   min-height: 100vh;
 }
 
+/* ── LANDING SCREEN ── */
+#landing-screen {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 40px 24px; gap: 40px;
+}
+.landing-title { font-size: 32px; font-weight: 800; color: #f8fafc; letter-spacing: -0.02em; text-align: center; }
+.landing-sub { font-size: 14px; color: #374151; text-align: center; margin-top: 6px; }
+.landing-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; max-width: 640px; }
+.landing-tile {
+  background: #111827; border-radius: 14px; padding: 28px 24px;
+  cursor: pointer; transition: border-color 0.18s, transform 0.15s;
+  display: flex; flex-direction: column; gap: 12px;
+  border: 1.5px solid #1e2530;
+}
+.landing-tile:hover { transform: translateY(-2px); }
+.landing-tile.leagues { border-color: #1a5c40; }
+.landing-tile.leagues:hover { border-color: #22c55e; }
+.landing-tile.draft { border-color: #1e3a6e; }
+.landing-tile.draft:hover { border-color: #3b82f6; }
+.tile-icon-lg { font-size: 28px; }
+.tile-label { font-size: 18px; font-weight: 700; color: #f1f5f9; }
+.tile-blurb { font-size: 12px; color: #4b5563; line-height: 1.55; }
+.tile-pill {
+  align-self: flex-start; font-size: 10px; font-weight: 700;
+  padding: 3px 11px; border-radius: 20px; margin-top: 4px;
+}
+.landing-tile.leagues .tile-pill { background: #14532d; color: #86efac; }
+.landing-tile.draft .tile-pill { background: #1e3358; color: #93c5fd; }
+@media (max-width: 500px) {
+  .landing-tiles { grid-template-columns: 1fr; }
+}
+
+/* ── LEAGUES LIST SCREEN ── */
+#leagues-screen {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; padding: 40px 24px; gap: 28px;
+}
+.leagues-header { width: 100%; max-width: 700px; display: flex; align-items: center; gap: 14px; }
+.leagues-back { background: none; border: none; color: #94a3b8; font-size: 13px; cursor: pointer; padding: 0; font-weight: 600; }
+.leagues-back:hover { color: #f1f5f9; }
+.leagues-title { font-size: 22px; font-weight: 700; color: #f1f5f9; }
+.leagues-body { width: 100%; max-width: 700px; display: flex; flex-direction: column; gap: 16px; }
+
+/* Username entry */
+.username-card {
+  background: #111827; border: 1px solid #1e2530; border-radius: 12px;
+  padding: 24px; display: flex; flex-direction: column; gap: 14px;
+}
+.username-card-title { font-size: 15px; font-weight: 700; color: #e2e8f0; }
+.username-card-sub { font-size: 12px; color: #4b5563; margin-top: -8px; }
+.username-row { display: flex; gap: 10px; }
+.username-input {
+  flex: 1; background: #0d1117; border: 1px solid #2d3748; border-radius: 8px;
+  padding: 9px 14px; font-size: 13px; color: #e2e8f0; outline: none;
+}
+.username-input:focus { border-color: #3b82f6; }
+.username-btn {
+  background: #1e3358; border: 1px solid #3b6fe8; border-radius: 8px;
+  padding: 9px 18px; font-size: 13px; font-weight: 600; color: #93c5fd;
+  cursor: pointer; white-space: nowrap;
+}
+.username-btn:hover { background: #1d4ed8; color: #fff; }
+
+/* League cards */
+.league-cards { display: flex; flex-direction: column; gap: 10px; }
+.league-card {
+  background: #111827; border: 1px solid #1e2530; border-radius: 10px;
+  padding: 16px 20px; cursor: pointer; transition: border-color 0.15s;
+  display: flex; align-items: center; gap: 16px;
+}
+.league-card:hover { border-color: #3b6fe8; }
+.league-card-icon { font-size: 20px; flex-shrink: 0; }
+.league-card-info { flex: 1; min-width: 0; }
+.league-card-name { font-size: 14px; font-weight: 700; color: #e2e8f0; }
+.league-card-meta { font-size: 11px; color: #374151; margin-top: 3px; }
+.league-card-arrow { color: #2d3748; font-size: 16px; }
+.league-card:hover .league-card-arrow { color: #3b6fe8; }
+
+/* ── LEAGUE DETAIL SCREEN ── */
+#league-detail-screen {
+  display: none; flex-direction: column; height: 100vh; overflow: hidden;
+}
+.ld-header {
+  background: #111827; border-bottom: 1px solid #1e2530;
+  padding: 10px 260px 10px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.ld-back { background: none; border: none; color: #94a3b8; font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; margin-right: 4px; }
+.ld-back:hover { color: #f1f5f9; }
+.ld-league-name { font-size: 15px; font-weight: 700; color: #f1f5f9; }
+.ld-meta { font-size: 11px; color: #374151; }
+.ld-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.ld-upload-btn {
+  background: #1a3028; border: 1px solid #1a5c40; border-radius: 16px;
+  padding: 5px 13px; font-size: 11px; font-weight: 600; color: #6ee7b7; cursor: pointer;
+}
+.ld-upload-btn:hover { background: #14532d; }
+.ld-body { display: flex; flex: 1; overflow: hidden; }
+.ld-board { flex: 1; overflow: auto; padding: 10px 12px 24px; }
+.ld-team-grid { display: flex; gap: 8px; align-items: flex-start; min-width: max-content; padding-right: 100vw; }
+.ld-team-col.my-team {
+  position: sticky; left: 0; z-index: 10;
+  background: #0f1319;
+  box-shadow: 3px 0 10px rgba(0,0,0,0.6);
+}
+
+/* Team column */
+.ld-team-col { width: 128px; flex-shrink: 0; }
+.ld-team-header {
+  background: #1a1f2a; border: 1px solid #1e2530; border-radius: 7px;
+  padding: 6px 8px; margin-bottom: 6px; text-align: center;
+}
+.ld-team-col.my-team .ld-team-header { border-color: #3b6fe8; background: #1e3358; }
+.ld-team-name { font-size: 11px; font-weight: 700; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ld-team-col.my-team .ld-team-name { color: #93c5fd; }
+.ld-team-record { font-size: 10px; color: #374151; margin-top: 1px; }
+.ld-team-rank { font-size: 11px; font-weight: 800; color: #94a3b8; margin-top: 2px; letter-spacing: -0.01em; }
+.ld-team-col.my-team .ld-team-rank { color: #93c5fd; }
+.ld-tier-pill {
+  display: inline-block; margin-top: 4px;
+  padding: 1px 7px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.9);
+  letter-spacing: 0.02em;
+}
+.ld-pos-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  row-gap: 4px; column-gap: 4px;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  font-size: 9px; line-height: 1;
+}
+.ld-pos-label { color: #64748b; font-weight: 600; text-align: left; white-space: nowrap; font-size: 9px; }
+.ld-pos-avg   { font-size: 12px; font-weight: 700; text-align: right; }
+.ld-pos-sd    { color: rgba(255,255,255,0.35); font-weight: 400; text-align: right; white-space: nowrap; font-size: 9px; }
+.ld-pos-avg.best {
+  color: #fbbf24;
+  font-weight: 900;
+  text-shadow: 0 0 8px #f59e0b99;
+}
+/* Bench depth summary — sits between starters and bench cards */
+.ld-bench-summary {
+  margin: 4px 0 2px;
+  padding: 5px 6px;
+  background: rgba(0,0,0,0.25);
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+.ld-bench-summary-title {
+  font-size: 8px; font-weight: 600; color: #475569;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+/* reuse ld-pos-grid layout; smaller avg text for bench */
+.ld-bench-summary .ld-pos-avg { font-size: 10px; }
+
+/* Slot section labels */
+.ld-slot-divider {
+  font-size: 8px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+  color: #2d3748; text-align: center; padding: 3px 0 2px; margin: 2px 0;
+}
+.ld-slot-divider.bench { color: #1e2530; }
+
+/* League player card */
+.ld-card {
+  border-radius: 6px; overflow: hidden; margin-bottom: 3px;
+  display: flex; min-height: 72px; position: relative;
+}
+.ld-card .tier-strip { width: 20px; font-size: 11px; }
+.ld-card-body { flex: 1; padding: 4px 6px 3px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ld-fname { font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ld-lname { font-size: 11px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ld-pos-row { display: flex; align-items: center; gap: 3px; margin-top: 1px; }
+.ld-card-stats { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
+.ld-rank { font-size: 9px; color: #374151; }
+.ld-rank span { color: #60a5fa; }
+.ld-proj { font-size: 9px; color: #4b5563; }
+.ld-proj span { color: #a3e635; }
+.ld-card.bench-card { opacity: 0.55; }
+/* SUPERFLEX slot glow — gold outline, similar to on-the-clock amber on the draft board */
+@keyframes sfPulse {
+  0%, 100% { box-shadow: 0 0 0 1.5px #b45309, 0 0 6px #d9770655; }
+  50%       { box-shadow: 0 0 0 2px   #f59e0b, 0 0 12px #fbbf2499; }
+}
+.ld-card.ld-card-sf { animation: sfPulse 2.4s ease-in-out infinite; }
+
+/* Waiver wire sidebar */
+.ld-wire {
+  width: 164px; flex-shrink: 0; background: #0d1117;
+  border-left: 1px solid #1e2530; display: flex; flex-direction: column; overflow: hidden;
+}
+.ld-wire-hdr { padding: 10px 12px 6px; border-bottom: 1px solid #1e2530; }
+.ld-wire-title { font-size: 11px; font-weight: 700; color: #94a3b8; letter-spacing: 0.5px; text-transform: uppercase; }
+.ld-wire-sub { font-size: 10px; color: #374151; margin-top: 2px; }
+
+/* Position filter pills */
+.wire-filter { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 10px 4px; border-bottom: 1px solid #1e2530; }
+.wire-pill {
+  font-size: 9px; font-weight: 700; padding: 2px 8px; border-radius: 10px;
+  background: #111827; border: 1px solid #1e2530; color: #374151; cursor: pointer;
+}
+.wire-pill.active { background: #1e3358; border-color: #3b6fe8; color: #93c5fd; }
+.wire-list { flex: 1; overflow-y: auto; padding: 6px 8px; }
+.wire-card {
+  background: #111827; border: 1px solid #1e2530; border-radius: 6px;
+  padding: 5px 8px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;
+}
+.wire-rank { font-size: 10px; font-weight: 700; color: #374151; min-width: 22px; }
+.wire-rank.value { color: #f59e0b; }
+.wire-info { flex: 1; min-width: 0; }
+.wire-name { font-size: 10px; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wire-pos-team { font-size: 9px; color: #4b5563; }
+.wire-proj { font-size: 9px; color: #4b5563; white-space: nowrap; }
+.wire-proj span { color: #a3e635; }
+
+/* CSV upload input for leagues (hidden) */
+#league-csv-input { display: none; }
+
 /* ── UPLOAD SCREEN ── */
 #upload-screen {
   min-height: 100vh;
@@ -144,7 +364,7 @@ body {
 .board-header {
   background: #0d1117;
   border-bottom: 1px solid #1a1f2a;
-  padding: 10px 16px;
+  padding: 10px 260px 10px 16px;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -575,10 +795,93 @@ body {
 </head>
 <body>
 
-<!-- ── UPLOAD SCREEN ── -->
-<div id="upload-screen">
+<!-- ── LANDING SCREEN ── -->
+<div id="landing-screen">
   <div style="text-align:center">
-    <div class="upload-title">The Draft Room</div>
+    <div class="landing-title">The Draft Room</div>
+    <div class="landing-sub">Your fantasy football command center</div>
+  </div>
+  <div class="landing-tiles">
+    <div class="landing-tile leagues" onclick="goToLeagues()">
+      <div class="tile-icon-lg">🏆</div>
+      <div class="tile-label">My Leagues</div>
+      <div class="tile-blurb">Compare rosters, check the waiver wire, and set your lineup using weekly rankings + Sleeper projections.</div>
+      <div class="tile-pill">Sign in to access</div>
+    </div>
+    <div class="landing-tile draft" onclick="goToDraft()">
+      <div class="tile-icon-lg">📋</div>
+      <div class="tile-label">Draft Room</div>
+      <div class="tile-blurb">Track a live draft. Upload rankings, connect Sleeper or ESPN, and follow every pick on the snake board.</div>
+      <div class="tile-pill">No sign-in required</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── LEAGUES LIST SCREEN ── -->
+<div id="leagues-screen" style="display:none">
+  <div class="leagues-header">
+    <button class="leagues-back" onclick="showScreen('landing')">← Home</button>
+    <div class="leagues-title">My Leagues</div>
+  </div>
+  <div class="leagues-body">
+    <!-- Username entry card — shown only if no username saved -->
+    <div id="username-card" class="username-card" style="display:none">
+      <div class="username-card-title">Connect your Sleeper account</div>
+      <div class="username-card-sub">Enter your Sleeper username once — we'll save it to your profile.</div>
+      <div class="username-row">
+        <input class="username-input" id="sleeper-username-input" placeholder="Sleeper username" autocomplete="off"
+               onkeydown="if(event.key==='Enter') saveUsername()">
+        <button class="username-btn" onclick="saveUsername()">Connect</button>
+      </div>
+      <div id="username-error" style="font-size:11px;color:#f87171;display:none"></div>
+    </div>
+    <!-- League cards injected here -->
+    <div id="league-cards-container" class="league-cards"></div>
+    <div id="leagues-loading" style="font-size:12px;color:#374151;text-align:center;display:none">Loading leagues…</div>
+    <div id="leagues-empty" style="font-size:12px;color:#374151;text-align:center;display:none">No leagues found for this username.</div>
+  </div>
+</div>
+
+<!-- ── LEAGUE DETAIL SCREEN ── -->
+<div id="league-detail-screen">
+  <div class="ld-header">
+    <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
+    <div>
+      <div class="ld-league-name" id="ld-league-name">—</div>
+      <div class="ld-meta" id="ld-meta"></div>
+    </div>
+    <div class="ld-controls">
+      <span id="ld-rankings-status" style="font-size:11px;color:#374151"></span>
+      <button class="ld-upload-btn" onclick="document.getElementById('league-csv-input').click()">↑ Update rankings</button>
+      <input type="file" id="league-csv-input" accept=".csv" onchange="onLeagueCsvUpload(event)">
+    </div>
+  </div>
+  <div class="ld-body">
+    <div class="ld-board" id="ld-board">
+      <div id="ld-team-grid" class="ld-team-grid"></div>
+    </div>
+    <div class="ld-wire">
+      <div class="ld-wire-hdr">
+        <div class="ld-wire-title">Waiver wire</div>
+        <div class="ld-wire-sub" id="ld-wire-sub">Top available by rank</div>
+      </div>
+      <div class="wire-filter" id="wire-filter">
+        <span class="wire-pill active" data-pos="ALL" onclick="setWireFilter('ALL')">All</span>
+        <span class="wire-pill" data-pos="QB" onclick="setWireFilter('QB')">QB</span>
+        <span class="wire-pill" data-pos="RB" onclick="setWireFilter('RB')">RB</span>
+        <span class="wire-pill" data-pos="WR" onclick="setWireFilter('WR')">WR</span>
+        <span class="wire-pill" data-pos="TE" onclick="setWireFilter('TE')">TE</span>
+      </div>
+      <div class="wire-list" id="wire-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── UPLOAD SCREEN ── -->
+<div id="upload-screen" style="display:none">
+  <div style="text-align:center;position:relative;width:100%;max-width:820px">
+    <button onclick="showScreen('landing')" style="position:absolute;left:0;top:4px;background:none;border:none;color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;">← Home</button>
+    <div class="upload-title">Draft Room</div>
     <div class="upload-subtitle">Upload your rankings CSV and Sleeper draft URL to generate your snake board</div>
   </div>
 
@@ -710,6 +1013,24 @@ body {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
+// ── App navigation ──
+const ALL_SCREENS = ['landing-screen','upload-screen','board-screen','leagues-screen','league-detail-screen'];
+function showScreen(name) {
+  ALL_SCREENS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const isTarget = id === name + '-screen' || id === name;
+    el.style.display = isTarget ? (id === 'board-screen' || id === 'league-detail-screen' ? 'flex' : '') : 'none';
+  });
+}
+function goToDraft() { showScreen('upload'); }
+function goToLeagues() {
+  if (!currentUser) { openSignIn(); _pendingAfterSignIn = 'leagues'; return; }
+  showScreen('leagues');
+  initLeaguesScreen();
+}
+let _pendingAfterSignIn = null;
+
 // ── State ──
 let csvPlayers    = [];
 let sleeperByName = {};   // normName  -> { adp, team, id }
@@ -768,18 +1089,24 @@ function normName(n) {
     .replace(/[''`]/g, "'")
     .replace(/\s+(jr\.?|sr\.?|ii|iii|iv)$/i, '')
     .replace(/[^a-z0-9' ]/g, '')
+    // strip apostrophe at end-of-word before a space or string end
+    // e.g. "Tre' Harris" → "tre harris" but "D'Andre" stays "d'andre"
+    .replace(/'\s+/g, ' ')
+    .replace(/'$/, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 // Common nickname aliases — add more as needed
 const NAME_ALIASES = {
-  'kenneth gainwell': 'kenny gainwell',
-  'kenny gainwell':   'kenneth gainwell',
-  'gabriel davis':    'gabe davis',
-  'gabe davis':       'gabriel davis',
-  'robbie chosen':    'odell beckham',
+  'kenneth gainwell':  'kenny gainwell',
+  'kenny gainwell':    'kenneth gainwell',
+  'gabriel davis':     'gabe davis',
+  'gabe davis':        'gabriel davis',
+  'robbie chosen':     'odell beckham',
   'marquez valdez-scantling': 'mvs',
+  'nicholas singleton': 'nick singleton',
+  'nick singleton':    'nicholas singleton',
 };
 
 // Display name overrides: internal key (normName) → preferred display string
@@ -902,7 +1229,8 @@ function loadCSV(file) {
 }
 
 // Reparse from raw text (used when restoring a saved session)
-function parseCSVText(text, onComplete) {
+// leagueMode=true → calls onComplete(parsedArray) instead of setting global csvPlayers
+function parseCSVText(text, onComplete, leagueMode = false) {
   Papa.parse(text, {
     header: true, skipEmptyLines: true,
     complete: result => {
@@ -930,6 +1258,10 @@ function parseCSVText(text, onComplete) {
       parsed = parsed.filter(p => p.ov > 0).sort((a, b) => a.ov - b.ov);
       const hasTier = parsed.some(p => p.tier > 0);
       if (!hasTier) parsed.forEach((p, i) => { p.tier = Math.ceil((i + 1) / (teamCount || 12)); });
+      if (leagueMode) {
+        if (onComplete) onComplete(parsed);
+        return;
+      }
       csvPlayers = parsed;
       document.getElementById('csv-done-msg').textContent = `✓ ${csvPlayers.length} players loaded`;
       csvDrop.classList.add('done');
@@ -1034,8 +1366,7 @@ function toggle3RR() {
 
 function goBack() {
   stopAutoSync();
-  document.getElementById('board-screen').style.display = 'none';
-  document.getElementById('upload-screen').style.display = 'flex';
+  showScreen('upload');
   document.getElementById('gen-btn').style.display = '';
   document.getElementById('loading').style.display = 'none';
   document.getElementById('error-msg').style.display = 'none';
@@ -1210,11 +1541,13 @@ async function loadSleeperFull() {
     const adpRaw = (rawVal != null && Number(rawVal) < 9999) ? Number(rawVal) : null;
     const key = normName(p.full_name);
     sleeperByName[key] = {
-      adp:     adpRaw,
-      adpRank: null,
-      bye:     (p.bye_week != null && p.bye_week > 0) ? p.bye_week : null,
-      team:    p.team || null,
-      id:      pid,
+      adp:      adpRaw,
+      adpRank:  null,
+      bye:      (p.bye_week != null && p.bye_week > 0) ? p.bye_week : null,
+      team:     p.team || null,
+      pos:      p.position || null,
+      id:       pid,
+      fullName: p.full_name || null,
     };
     sleeperById[pid] = key;
   }
@@ -1641,9 +1974,13 @@ sb.auth.onAuthStateChange((event, session) => {
   currentUser = session?.user ?? null;
   updateAuthUI();
   if (event === 'PASSWORD_RECOVERY') {
-    // User clicked a reset link — show the set-new-password screen
     document.getElementById('signin-modal').classList.add('open');
     showAuthScreen('auth-new-password');
+  }
+  if ((event === 'SIGNED_IN') && _pendingAfterSignIn) {
+    const dest = _pendingAfterSignIn;
+    _pendingAfterSignIn = null;
+    if (dest === 'leagues') { closeSignIn(); showScreen('leagues'); initLeaguesScreen(); }
   }
 });
 
@@ -1854,6 +2191,694 @@ async function doSaveSession() {
     if (!error) { currentSessionId = data.id; hideSavePrompt(); showToast('Draft saved ✓'); }
     else showToast('Save failed.');
   }
+}
+
+// ════════════════════════════════════════════════════════
+// ── LEAGUE MANAGEMENT ──────────────────────────────────
+// ════════════════════════════════════════════════════════
+
+// League state
+let leagueSleeperUsername = '';
+let leagueList            = [];   // raw Sleeper league objects
+let leagueRosters         = [];   // current league rosters
+let leagueUsers           = [];   // current league users
+let leagueProjections     = {};   // player_id → pts for current week
+let leagueMeta            = {};   // current league meta
+let leagueCsvPlayers      = [];   // CSV rankings uploaded for league view
+let wirePositionFilter    = 'ALL';
+let leagueMyRosterId      = null; // roster_id for currentUser
+
+// ── Supabase profile helpers ──
+// NOTE: Run this SQL once in your Supabase SQL editor:
+// CREATE TABLE IF NOT EXISTS user_profiles (
+//   user_id UUID PRIMARY KEY REFERENCES auth.users(id),
+//   sleeper_username TEXT,
+//   updated_at TIMESTAMPTZ DEFAULT now()
+// );
+// ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+// CREATE POLICY "own profile" ON user_profiles FOR ALL USING (auth.uid() = user_id);
+
+async function loadSleeperUsername() {
+  if (!currentUser) return null;
+  const { data } = await sb.from('user_profiles').select('sleeper_username').eq('user_id', currentUser.id).maybeSingle();
+  return data?.sleeper_username || null;
+}
+
+async function persistSleeperUsername(username) {
+  if (!currentUser) return;
+  await sb.from('user_profiles').upsert({ user_id: currentUser.id, sleeper_username: username, updated_at: new Date().toISOString() });
+}
+
+// ── Leagues screen init ──
+async function initLeaguesScreen() {
+  const errEl   = document.getElementById('username-error');
+  const loadEl  = document.getElementById('leagues-loading');
+  const emptyEl = document.getElementById('leagues-empty');
+  const cardCon = document.getElementById('league-cards-container');
+  const uCard   = document.getElementById('username-card');
+
+  errEl.style.display = 'none';
+  loadEl.style.display = 'none';
+  emptyEl.style.display = 'none';
+  cardCon.innerHTML = '';
+
+  const saved = await loadSleeperUsername();
+  if (saved) {
+    leagueSleeperUsername = saved;
+    document.getElementById('sleeper-username-input').value = saved;
+    uCard.style.display = 'none';
+    await fetchAndRenderLeagues(saved);
+  } else {
+    uCard.style.display = '';
+  }
+}
+
+async function saveUsername() {
+  const val = document.getElementById('sleeper-username-input').value.trim();
+  const errEl = document.getElementById('username-error');
+  errEl.style.display = 'none';
+  if (!val) return;
+
+  // Validate — try fetching user from Sleeper
+  document.getElementById('username-error').style.display = 'none';
+  const res = await fetch(`https://api.sleeper.app/v1/user/${val}`);
+  if (!res.ok || (await res.clone().json()) === null) {
+    errEl.textContent = 'Sleeper username not found.';
+    errEl.style.display = '';
+    return;
+  }
+  leagueSleeperUsername = val;
+  await persistSleeperUsername(val);
+  document.getElementById('username-card').style.display = 'none';
+  await fetchAndRenderLeagues(val);
+}
+
+// ── Fetch leagues and render list ──
+async function fetchAndRenderLeagues(username) {
+  const loadEl  = document.getElementById('leagues-loading');
+  const emptyEl = document.getElementById('leagues-empty');
+  const cardCon = document.getElementById('league-cards-container');
+  loadEl.style.display = '';
+  cardCon.innerHTML = '';
+
+  try {
+    const userRes = await fetch(`https://api.sleeper.app/v1/user/${username}`);
+    const user    = await userRes.json();
+    if (!user?.user_id) throw new Error('User not found');
+
+    const season = new Date().getFullYear();
+    const lgRes  = await fetch(`https://api.sleeper.app/v1/user/${user.user_id}/leagues/nfl/${season}`);
+    leagueList   = await lgRes.json() || [];
+
+    loadEl.style.display = 'none';
+    if (!leagueList.length) { emptyEl.style.display = ''; return; }
+
+    leagueList.forEach(lg => {
+      const scoring  = lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std';
+      const teams    = lg.total_rosters || '?';
+      const card     = document.createElement('div');
+      card.className = 'league-card';
+      card.innerHTML = `
+        <div class="league-card-icon">🏆</div>
+        <div class="league-card-info">
+          <div class="league-card-name">${escHtml(lg.name)}</div>
+          <div class="league-card-meta">${teams}-team · ${scoring} · ${lg.status || 'active'}</div>
+        </div>
+        <div class="league-card-arrow">›</div>`;
+      card.onclick = () => loadLeagueDetail(lg);
+      cardCon.appendChild(card);
+    });
+  } catch(e) {
+    loadEl.style.display = 'none';
+    emptyEl.textContent  = 'Could not load leagues: ' + e.message;
+    emptyEl.style.display = '';
+  }
+}
+
+// ── Ensure Sleeper player DB is loaded (fetch once, reused across draft + leagues) ──
+// Offensive fantasy positions we care about (IDP excluded for now)
+const OFFENSE_POSITIONS = new Set(['QB','RB','WR','TE','K']);
+
+// Returns the canonical fantasy position for a player, or null if non-offensive.
+// Handles multi-position players like Travis Hunter (WR + CB → WR).
+function offensePos(p) {
+  const fps = p.fantasy_positions || (p.position ? [p.position] : []);
+  // Prefer offensive position if player is tagged with multiple (e.g. Travis Hunter)
+  for (const pos of fps) {
+    if (OFFENSE_POSITIONS.has(pos)) return pos;
+  }
+  return null; // purely defensive / special teams non-K
+}
+
+let _sleeperDbLoading = null;
+async function ensureSleeperDb() {
+  if (Object.keys(sleeperById).length > 0) return; // already loaded
+  if (_sleeperDbLoading) return _sleeperDbLoading;  // in-flight
+  _sleeperDbLoading = (async () => {
+    const res = await fetch('https://api.sleeper.app/v1/players/nfl');
+    const all = await res.json();
+    for (const [pid, p] of Object.entries(all)) {
+      if (!p.full_name) continue;
+      const pos = offensePos(p);
+      if (!pos) {
+        // Skip purely defensive / ST players — don't let them pollute normName keys
+        // (e.g. Josh Allen DE won't overwrite Josh Allen QB)
+        sleeperById[pid] = normName(p.full_name); // still index by pid for roster lookups
+        continue;
+      }
+      const key = normName(p.full_name);
+      const entry = { adp: null, adpRank: null, bye: null, team: p.team || null, pos, id: pid, fullName: p.full_name || null };
+      if (!sleeperByName[key]) {
+        sleeperByName[key] = entry;
+      } else if (p.team && !sleeperByName[key].team) {
+        // Prefer the player who's actually on an active roster (avoids ghost WR beating rostered RB)
+        sleeperByName[key] = entry;
+      }
+      sleeperById[pid] = key;
+    }
+  })();
+  return _sleeperDbLoading;
+}
+
+// ── League detail load ──
+async function loadLeagueDetail(lg) {
+  showScreen('league-detail');
+  leagueMeta = lg;
+  document.getElementById('ld-league-name').textContent = lg.name;
+  const scoring = lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std';
+  document.getElementById('ld-meta').textContent = `${lg.total_rosters}-team · ${scoring}`;
+  document.getElementById('ld-team-grid').innerHTML = '<div style="color:#374151;font-size:12px;padding:20px">Loading rosters…</div>';
+  document.getElementById('wire-list').innerHTML = '';
+
+  try {
+    // Ensure player DB + fetch everything else in parallel
+    const season = new Date().getFullYear();
+    const [, stateRes, rosterRes, userRes] = await Promise.all([
+      ensureSleeperDb(),
+      fetch('https://api.sleeper.app/v1/state/nfl'),
+      fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/rosters`),
+      fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/users`),
+    ]);
+    const nflState = await stateRes.json();
+    leagueRosters  = await rosterRes.json();
+    leagueUsers    = await userRes.json();
+
+    const week = nflState?.display_week || nflState?.week || 1;
+    const scoringKey = lg.scoring_settings?.rec === 1 ? 'pts_ppr'
+                     : lg.scoring_settings?.rec === 0.5 ? 'pts_half_ppr' : 'pts_std';
+
+    // Projections — non-fatal if unavailable (preseason)
+    try {
+      const projRes = await fetch(`https://api.sleeper.app/v1/projections/nfl/${season}/${week}`);
+      const projRaw = await projRes.json();
+      leagueProjections = {};
+      Object.entries(projRaw || {}).forEach(([pid, stats]) => {
+        const pts = stats[scoringKey] ?? stats.pts_half_ppr ?? stats.pts_ppr ?? stats.pts_std ?? null;
+        if (pts != null) leagueProjections[pid] = Math.round(pts * 10) / 10;
+      });
+    } catch(_) { leagueProjections = {}; }
+
+    // Find which roster is mine (match owner_id to currentUser's Sleeper id via username)
+    leagueMyRosterId = null;
+    if (leagueSleeperUsername) {
+      try {
+        const meRes = await fetch(`https://api.sleeper.app/v1/user/${leagueSleeperUsername}`);
+        const meData = await meRes.json();
+        const myUserId = meData?.user_id;
+        const myUserEntry = leagueUsers.find(u => u.user_id === myUserId);
+        if (myUserEntry) {
+          const myRoster = leagueRosters.find(r => r.owner_id === myUserId);
+          if (myRoster) leagueMyRosterId = myRoster.roster_id;
+        }
+      } catch(_) {}
+    }
+
+    renderLeagueDetail();
+  } catch(e) {
+    document.getElementById('ld-team-grid').innerHTML = `<div style="color:#f87171;font-size:12px;padding:20px">Error: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── CSV upload for league view ──
+function onLeagueCsvUpload(evt) {
+  const file = evt.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    parseCSVText(e.target.result, (players) => {
+      leagueCsvPlayers = players;
+      document.getElementById('ld-rankings-status').textContent = `✓ ${players.length} players ranked`;
+      renderLeagueDetail();
+    }, true); // true = return players to callback instead of setting csvPlayers global
+  };
+  reader.readAsText(file);
+}
+
+// ── Slot assignment ──
+// rosterPositions: array like ["QB","RB","RB","WR","WR","FLEX","SUPER_FLEX","TE","K","DEF","BN","BN"...]
+function assignSlots(playerObjs, rosterPositions) {
+  // playerObjs: { name, pos, rank (null if unranked), projPts, pid, team, tier }
+  const starters = rosterPositions.filter(s => s !== 'BN' && s !== 'IR');
+  const benchCount = rosterPositions.filter(s => s === 'BN').length;
+
+  // Helpers
+  const pool = playerObjs.map(p => ({ ...p, _used: false }));
+  const take = (posFn, sortFn) => {
+    const found = pool.find(p => !p._used && posFn(p));
+    if (!found) return null;
+    const candidates = pool.filter(p => !p._used && posFn(p)).sort(sortFn);
+    const picked = candidates[0];
+    picked._used = true;
+    return picked;
+  };
+  const byRank = (a, b) => (a.rank ?? 9999) - (b.rank ?? 9999);
+  const byProj = (a, b) => (b.projPts ?? -1) - (a.projPts ?? -1);
+
+  const isQB   = p => p.pos === 'QB';
+  const isRB   = p => p.pos === 'RB';
+  const isWR   = p => p.pos === 'WR';
+  const isTE   = p => p.pos === 'TE';
+  const isK    = p => p.pos === 'K';
+  const isDEF  = p => p.pos === 'DEF';
+  const isFlex = p => ['RB','WR','TE'].includes(p.pos);
+
+  const assigned = [];
+
+  const fillSlots = (slotName) => {
+    const count = starters.filter(s => s === slotName).length;
+    return count;
+  };
+
+  // Fill order: QB → RB → WR → TE → SUPER_FLEX (QB-priority) → FLEX → K → DEF
+  const order = ['QB','RB','WR','TE','SUPER_FLEX','FLEX','K','DEF'];
+  const slotCounts = {};
+  starters.forEach(s => { slotCounts[s] = (slotCounts[s] || 0) + 1; });
+
+  order.forEach(slot => {
+    const n = slotCounts[slot] || 0;
+    for (let i = 0; i < n; i++) {
+      let p = null;
+      if (slot === 'QB')        p = take(isQB,  byRank);
+      else if (slot === 'RB')   p = take(isRB,  byRank);
+      else if (slot === 'WR')   p = take(isWR,  byRank);
+      else if (slot === 'TE')   p = take(isTE,  byRank);
+      else if (slot === 'K')    p = take(isK,   byProj);
+      else if (slot === 'DEF')  p = take(isDEF, byProj);
+      else if (slot === 'SUPER_FLEX') {
+        // QB-first; fall back to best RB/WR/TE by rank
+        p = take(isQB, byRank) || take(isFlex, byRank);
+      }
+      else if (slot === 'FLEX') {
+        p = take(isFlex, byRank);
+      }
+      if (p) assigned.push({ ...p, slot, bench: false });
+    }
+  });
+
+  // Bench — remaining, ranked players first then by proj
+  const bench = pool.filter(p => !p._used)
+    .sort((a, b) => {
+      if (a.rank != null && b.rank != null) return a.rank - b.rank;
+      if (a.rank != null) return -1;
+      if (b.rank != null) return 1;
+      return (b.projPts ?? -1) - (a.projPts ?? -1);
+    })
+    .map(p => ({ ...p, slot: 'BN', bench: true }));
+
+  return [...assigned, ...bench];
+}
+
+// ── Render league detail ──
+function renderLeagueDetail() {
+  const grid = document.getElementById('ld-team-grid');
+  grid.innerHTML = '';
+
+  const rosterPositions = leagueMeta.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN','BN','BN'];
+
+  // Build user lookup: user_id → display_name
+  const userMap = {};
+  leagueUsers.forEach(u => { userMap[u.user_id] = u.display_name || u.username || 'Team'; });
+
+  // Helpers — hoisted so they're available in the rosterScores loop too
+  function calcAvg(vals) {
+    return vals.length ? (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1) : null;
+  }
+  function stdDev(vals) {
+    if (vals.length < 2) return null;
+    const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+    return Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length).toFixed(1);
+  }
+
+  // Build roster score for sorting: sum of starter ranks (lower=better)
+  const rosterScores = [];
+  leagueRosters.forEach(roster => {
+    const players    = buildRosterPlayers(roster);
+    const slots      = assignSlots(players, rosterPositions);
+    const starters   = slots.filter(p => !p.bench);
+    const score      = starters.reduce((sum, p) => sum + (p.rank ?? 300), 0);
+    // Avg + SD tier: starters with a tier only (skip K/DEF/unranked)
+    const tieredVals = starters.filter(p => p.tier != null).map(p => p.tier);
+    const avgTier    = calcAvg(tieredVals);   // "x.x" string
+    const sdTier     = stdDev(tieredVals);    // "x.x" string or null
+    rosterScores.push({ roster, players, slots, score, avgTier, sdTier });
+  });
+
+  // Sort by avgTier ascending (lower = better); nulls last
+  rosterScores.sort((a, b) => {
+    if (a.avgTier == null && b.avgTier == null) return 0;
+    if (a.avgTier == null) return 1;
+    if (b.avgTier == null) return -1;
+    return parseFloat(a.avgTier) - parseFloat(b.avgTier);
+  });
+
+  // Assign rank BEFORE pin-splice so #1 reflects actual tier ranking
+  rosterScores.forEach((rs, i) => { rs.rank = i + 1; });
+
+  // Pin user's team to the far left, rest remains best→worst
+  const myIdx = rosterScores.findIndex(r => r.roster.roster_id === leagueMyRosterId);
+  if (myIdx > 0) rosterScores.unshift(rosterScores.splice(myIdx, 1)[0]);
+
+  // Build hot→cool color scale — accepts explicit min/max for per-position scaling
+  const validTiers = rosterScores.map(r => r.avgTier).filter(t => t != null).map(parseFloat);
+  const tierMin = validTiers.length ? Math.min(...validTiers) : 1;
+  const tierMax = validTiers.length ? Math.max(...validTiers) : 10;
+  function tierPillColor(avg, mn = tierMin, mx = tierMax) {
+    if (avg == null) return '#374151';
+    const t = mx === mn ? 0.5 : (avg - mn) / (mx - mn);
+    const hue = Math.round(220 - t * 220); // blue → red
+    return `hsl(${hue}, 72%, 38%)`;
+  }
+
+  // ── Positional breakdown ──
+  const posGroupDefs = [
+    { label: 'QB',   slots: new Set(['QB', 'SUPER_FLEX']) },
+    { label: 'RB',   slots: new Set(['RB']) },
+    { label: 'WR',   slots: new Set(['WR']) },
+    { label: 'TE',   slots: new Set(['TE']) },
+    { label: 'Flex', slots: new Set(['FLEX']) },
+  ];
+
+  // Pure position groups for bench (no flex blending)
+  const benchPosDefs = ['QB','RB','WR','TE'];
+
+  // Compute per-team starter positional stats + bench positional stats
+  rosterScores.forEach(rs => {
+    rs.posAvgs = {};
+    posGroupDefs.forEach(({ label, slots }) => {
+      const starters = rs.slots.filter(p => !p.bench && slots.has(p.slot));
+      const tiered   = starters.filter(p => p.tier != null).map(p => p.tier);
+      rs.posAvgs[label] = {
+        avg:   calcAvg(tiered),   // stored as "x.x" string, null if none
+        sd:    stdDev(tiered),
+        count: starters.length,
+      };
+    });
+
+    // Bench depth: group by player position, ranked players only
+    rs.benchAvgs = {};
+    benchPosDefs.forEach(pos => {
+      const bench  = rs.slots.filter(p => p.bench && p.pos === pos && p.tier != null);
+      const tiers  = bench.map(p => p.tier);
+      rs.benchAvgs[pos] = {
+        avg:   calcAvg(tiers),
+        sd:    stdDev(tiers),
+        count: tiers.length,
+      };
+    });
+    // Overall bench avg + sd across all ranked bench players
+    const allBenchTiered = rs.slots.filter(p => p.bench && p.tier != null).map(p => p.tier);
+    rs.benchOverall = { avg: calcAvg(allBenchTiered), sd: stdDev(allBenchTiered), count: allBenchTiered.length };
+  });
+
+  // Per-position min/max for color scaling + best-team tracker
+  const posRanges = {};
+  const posBest   = {}; // label → roster_id of league-best (lowest avg)
+  posGroupDefs.forEach(({ label }) => {
+    const vals = rosterScores.map(r => r.posAvgs[label]?.avg).filter(v => v != null).map(parseFloat);
+    posRanges[label] = { mn: vals.length ? Math.min(...vals) : 1, mx: vals.length ? Math.max(...vals) : 10 };
+    let bestVal = Infinity, bestId = null;
+    rosterScores.forEach(rs => {
+      const avg = parseFloat(rs.posAvgs[label]?.avg);
+      if (!isNaN(avg) && avg < bestVal) { bestVal = avg; bestId = rs.roster.roster_id; }
+    });
+    posBest[label] = bestId;
+  });
+
+  // Bench rank — sorted separately, display-only (doesn't affect column order)
+  const benchRanked = [...rosterScores]
+    .filter(r => r.benchOverall?.avg != null)
+    .sort((a, b) => parseFloat(a.benchOverall.avg) - parseFloat(b.benchOverall.avg));
+  benchRanked.forEach((rs, i) => { rs.benchRank = i + 1; });
+
+  // Bench color ranges (per pure position + overall, across all teams)
+  const benchRanges = {};
+  benchPosDefs.forEach(pos => {
+    const vals = rosterScores.map(r => r.benchAvgs[pos]?.avg).filter(v => v != null).map(parseFloat);
+    benchRanges[pos] = { mn: vals.length ? Math.min(...vals) : 1, mx: vals.length ? Math.max(...vals) : 10 };
+  });
+  const benchOverallVals = rosterScores.map(r => r.benchOverall?.avg).filter(v => v != null).map(parseFloat);
+  const benchOverallRange = {
+    mn: benchOverallVals.length ? Math.min(...benchOverallVals) : 1,
+    mx: benchOverallVals.length ? Math.max(...benchOverallVals) : 10,
+  };
+
+  rosterScores.forEach(({ roster, slots, avgTier, sdTier, posAvgs, benchAvgs, benchOverall, rank, benchRank }) => {
+    const isMe     = roster.roster_id === leagueMyRosterId;
+    const teamName = userMap[roster.owner_id] || `Team ${roster.roster_id}`;
+    const wins     = roster.settings?.wins ?? 0;
+    const losses   = roster.settings?.losses ?? 0;
+
+    const col = document.createElement('div');
+    col.className = 'ld-team-col' + (isMe ? ' my-team' : '');
+
+    // Overall tier pill
+    const tierPillHtml = avgTier != null
+      ? `<div><span class="ld-tier-pill" style="background:${tierPillColor(parseFloat(avgTier))}">T ${avgTier}${sdTier != null ? ` <span style="font-weight:400;opacity:0.7">±${sdTier}</span>` : ''}</span></div>`
+      : '';
+
+    // Positional breakdown grid rows
+    const posGridRows = posGroupDefs.map(({ label }) => {
+      const { avg, sd, count } = posAvgs?.[label] || {};
+      if (!count) return ''; // position not in this league format
+      const { mn, mx } = posRanges[label];
+      const isBest   = posBest[label] === roster.roster_id;
+      const avgColor = avg != null ? (isBest ? '' : `color:${tierPillColor(avg, mn, mx)}`) : 'color:#4b5563';
+      const avgClass = isBest ? 'ld-pos-avg best' : 'ld-pos-avg';
+      const sdStr    = sd != null ? `±${sd}` : '—';
+      const avgDisp  = avg != null ? avg : '—';  // already "x.x" string from calcAvg
+      return `
+        <span class="ld-pos-label">${label} (${count})</span>
+        <span class="${avgClass}" style="${avgColor}">${avgDisp}</span>
+        <span class="ld-pos-sd">${sdStr}</span>`;
+    }).join('');
+
+    const rankHtml = rank != null ? `<div class="ld-team-rank">#${rank} by Player Tier</div>` : '';
+
+    let html = `<div class="ld-team-header">
+      <div class="ld-team-name">${escHtml(teamName)}</div>
+      <div class="ld-team-record">${wins}-${losses}${isMe ? ' · you' : ''}</div>
+      ${rankHtml}
+      ${tierPillHtml}
+      ${posGridRows ? `<div class="ld-pos-grid">${posGridRows}</div>` : ''}
+    </div>`;
+
+    // Pre-build bench summary HTML
+    const benchSummaryRows = benchPosDefs.map(pos => {
+      const { avg, sd, count } = benchAvgs?.[pos] || {};
+      if (!count) return '';
+      const { mn, mx } = benchRanges[pos];
+      const color = avg != null ? `color:${tierPillColor(parseFloat(avg), mn, mx)}` : 'color:#4b5563';
+      const sdStr = sd != null ? `±${sd}` : '—';
+      return `
+        <span class="ld-pos-label">${pos} (${count})</span>
+        <span class="ld-pos-avg" style="${color}">${avg ?? '—'}</span>
+        <span class="ld-pos-sd">${sdStr}</span>`;
+    }).join('');
+
+    let inBench = false;
+    slots.forEach((p, i) => {
+      if (p.bench && !inBench) {
+        if (benchSummaryRows || benchOverall?.count) {
+          const bAvg = benchOverall?.avg;
+          const bSd  = benchOverall?.sd;
+          const bN   = benchOverall?.count ?? 0;
+          const bColor = bAvg != null
+            ? `background:${tierPillColor(parseFloat(bAvg), benchOverallRange.mn, benchOverallRange.mx)}`
+            : 'background:#374151';
+          const sdSpan = bSd != null ? ` <span style="font-weight:400;opacity:0.7">±${bSd}</span>` : '';
+          const rankSpan = benchRank != null ? `<span style="font-size:9px;font-weight:800;color:#94a3b8;margin-left:4px">#${benchRank}</span>` : '';
+          const overallPill = bAvg != null
+            ? `<span style="display:flex;align-items:center;gap:3px"><span class="ld-tier-pill" style="${bColor};font-size:9px;margin-top:0">T ${bAvg}${sdSpan} (${bN})</span>${rankSpan}</span>`
+            : '';
+          html += `<div class="ld-bench-summary">
+            <div class="ld-bench-summary-title" style="display:flex;align-items:center;justify-content:space-between">
+              <span>Bench depth</span>${overallPill}
+            </div>
+            ${benchSummaryRows ? `<div class="ld-pos-grid">${benchSummaryRows}</div>` : ''}
+          </div>`;
+        }
+        html += `<div class="ld-slot-divider bench">— bench —</div>`;
+        inBench = true;
+      } else if (!p.bench && i > 0 && slots[i-1]?.slot !== p.slot) {
+        // slot group divider between starters
+        const label = p.slot === 'SUPER_FLEX' ? 'SF' : p.slot;
+        if (['FLEX','SUPER_FLEX'].includes(p.slot) && !slots.slice(0,i).some(s => ['FLEX','SUPER_FLEX'].includes(s.slot))) {
+          html += `<div class="ld-slot-divider">— flex —</div>`;
+        }
+      }
+      html += buildLeagueCard(p, p.bench);
+    });
+
+    col.innerHTML = html;
+    grid.appendChild(col);
+  });
+
+  renderWaiverWire();
+}
+
+function toTitleCase(str) {
+  return (str || '').replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+function buildRosterPlayers(roster) {
+  const players = (roster.players || []).map(pid => {
+    const norm  = sleeperById[pid];
+    const sInfo = norm ? sleeperByName[norm] : null;
+    // Display name: prefer stored fullName, then title-case the norm key, then raw pid
+    const displayStr = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+    // CSV match — rank + tier
+    let rank = null, tier = null;
+    if (norm && leagueCsvPlayers.length) {
+      const csvP = leagueCsvPlayers.find(p => normName(p.name) === norm);
+      if (csvP) { rank = csvP.ov; tier = csvP.tier; }
+    }
+    // Fallback: use Sleeper adpRank when no CSV uploaded
+    if (rank == null && sInfo?.adpRank != null) rank = sInfo.adpRank;
+    const proj = leagueProjections[pid] ?? null;
+    const pos  = sInfo?.pos || p?.position || '?';
+    return { pid, name: displayStr, pos, rank, tier: tier ?? null, projPts: proj, team: sInfo?.team || '' };
+  });
+  return players;
+}
+
+function buildLeagueCard(p, isBench) {
+  const bg       = posClass(p.pos);
+  const tierBg   = p.tier ? tierHsl(p.tier) : 'rgba(0,0,0,0.3)';
+  const tierNum  = p.tier ?? '·';
+  const dn       = displayName(p.name);
+  const sp       = dn.indexOf(' ');
+  const fn       = sp >= 0 ? dn.slice(0, sp) : dn;
+  const ln       = sp >= 0 ? dn.slice(sp + 1) : '';
+  const rankHtml = p.rank ? `Rk <span>#${p.rank}</span>` : `<span style="color:#2d3748">—</span>`;
+  const projHtml = p.projPts != null ? `<span>${p.projPts}</span>` : '';
+  const slotLbl  = p.slot && p.slot !== 'BN' ? `<span style="font-size:8px;color:#2d3748;margin-left:auto">${p.slot === 'SUPER_FLEX' ? 'SF' : p.slot}</span>` : '';
+  const sfClass = (p.slot === 'SUPER_FLEX') ? ' ld-card-sf' : '';
+  return `
+    <div class="ld-card ${bg}${isBench ? ' bench-card' : ''}${sfClass}">
+      <div class="tier-strip" style="background:${tierBg}">${tierNum}</div>
+      <div class="ld-card-body">
+        <div class="ld-fname">${escHtml(fn)}</div>
+        ${ln ? `<div class="ld-lname">${escHtml(ln)}</div>` : `<div class="ld-lname">${escHtml(fn)}</div>`}
+        <div class="ld-pos-row">
+          <span class="pos-badge">${p.pos}</span>
+          ${p.team ? `<span style="font-size:8px;color:#374151">${p.team}</span>` : ''}
+          ${slotLbl}
+        </div>
+        <div class="ld-card-stats">
+          <span class="ld-rank">${rankHtml}</span>
+          ${projHtml ? `<span class="ld-proj">proj <span>${projHtml}</span></span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Waiver wire ──
+function setWireFilter(pos) {
+  wirePositionFilter = pos;
+  document.querySelectorAll('.wire-pill').forEach(el => {
+    el.classList.toggle('active', el.dataset.pos === pos);
+  });
+  renderWaiverWire();
+}
+
+function renderWaiverWire() {
+  const listEl = document.getElementById('wire-list');
+  listEl.innerHTML = '';
+
+  // All rostered player IDs across all teams
+  const rostered = new Set();
+  leagueRosters.forEach(r => (r.players || []).forEach(pid => rostered.add(pid)));
+
+  // Also build a set of normNames for rostered players (handles same-name pid collisions,
+  // e.g. two players named "Josh Allen" where sleeperByName only stores one pid)
+  const rosteredNorms = new Set();
+  leagueRosters.forEach(r => (r.players || []).forEach(pid => {
+    const norm = sleeperById[pid];
+    if (norm) {
+      rosteredNorms.add(norm);
+      // Also register any alias so Kenneth ↔ Kenny etc. are covered
+      const al = NAME_ALIASES[norm];
+      if (al) rosteredNorms.add(al);
+    }
+  }));
+
+  function isRostered(csvPlayerName, sInfo) {
+    const pid = sInfo?.id;
+    if (pid && rostered.has(pid)) return true;
+    const norm = normName(csvPlayerName);
+    if (rosteredNorms.has(norm)) return true;
+    const al = NAME_ALIASES[norm];
+    if (al && rosteredNorms.has(al)) return true;
+    return false;
+  }
+
+  // Build unrostered player list from sleeperById (all known players)
+  const wire = [];
+
+  if (leagueCsvPlayers.length) {
+    // Use CSV-ranked players as the source of truth
+    leagueCsvPlayers.forEach(p => {
+      // Find Sleeper pid for this player
+      const norm = normName(p.name);
+      const sInfo = sleeperByName[norm] || (NAME_ALIASES[norm] ? sleeperByName[NAME_ALIASES[norm]] : null);
+      const pid = sInfo?.id;
+      if (isRostered(p.name, sInfo)) return; // on a team
+      const pos = p.pos || '?';
+      if (wirePositionFilter !== 'ALL' && pos !== wirePositionFilter) return;
+      wire.push({ name: p.name, pos, rank: p.ov, tier: p.tier, projPts: pid ? (leagueProjections[pid] ?? null) : null, pid });
+    });
+  } else {
+    // No CSV — show by projections only
+    Object.entries(leagueProjections).forEach(([pid, pts]) => {
+      if (rostered.has(pid)) return;
+      const norm = sleeperById[pid];
+      const sInfo = norm ? sleeperByName[norm] : null;
+      const pos = sInfo?.pos || '?';
+      if (wirePositionFilter !== 'ALL' && pos !== wirePositionFilter) return;
+      wire.push({ name: norm || pid, pos, rank: null, projPts: pts, pid });
+    });
+    wire.sort((a, b) => (b.projPts ?? -1) - (a.projPts ?? -1));
+  }
+
+  const top = wire.slice(0, 40);
+  const maxRank = leagueCsvPlayers.length ? Math.max(...leagueCsvPlayers.slice(0, 24).map(p => p.ov)) : 999;
+
+  top.forEach(p => {
+    const isValue = p.rank != null && p.rank <= maxRank;
+    const dn = displayName(p.name);
+    const el = document.createElement('div');
+    el.className = 'wire-card';
+    el.innerHTML = `
+      <div class="wire-rank${isValue ? ' value' : ''}">${p.rank ? `#${p.rank}` : '—'}</div>
+      <div class="wire-info">
+        <div class="wire-name">${escHtml(dn)}</div>
+        <div class="wire-pos-team">${p.pos}</div>
+      </div>
+      ${p.projPts != null ? `<div class="wire-proj"><span>${p.projPts}</span></div>` : ''}`;
+    listEl.appendChild(el);
+  });
+
+  if (!top.length) listEl.innerHTML = '<div style="font-size:11px;color:#2d3748;padding:8px">No players found</div>';
 }
 
 // Toast
