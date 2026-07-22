@@ -1400,9 +1400,7 @@ async function generateBoard() {
 
   try {
     await loadSleeperFull();
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('upload-screen').style.display = 'none';
-    document.getElementById('board-screen').style.display = 'flex';
+    showScreen('board');
     boardIsActive = true;
     renderBoard();
     startAutoSync();
