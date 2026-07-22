@@ -251,8 +251,25 @@ body {
   overflow: hidden;
   min-height: 90px;
   min-width: 0;
-  transition: opacity 0.3s, filter 0.3s;
+  position: relative;
+  transition: opacity 0.3s, filter 0.3s, box-shadow 0.2s;
 }
+/* Snake direction arrow — bottom-right of each card */
+.card-arrow {
+  position: absolute; bottom: 4px; right: 5px;
+  font-size: 11px; color: rgba(255,255,255,0.22);
+  line-height: 1; user-select: none; pointer-events: none;
+}
+.card-arrow.arrow-turn { color: rgba(255,255,255,0.38); }
+/* On-the-clock highlight */
+.card-onclock {
+  box-shadow: 0 0 0 2px #f59e0b, 0 0 12px #f59e0b55;
+}
+@keyframes clockPulse {
+  0%, 100% { box-shadow: 0 0 0 2px #f59e0b, 0 0 10px #f59e0b44; }
+  50%       { box-shadow: 0 0 0 2.5px #fbbf24, 0 0 18px #f59e0b88; }
+}
+.card-onclock { animation: clockPulse 1.5s ease-in-out infinite; }
 .pick-card.empty {
   background: #161b24;
   border: 1px dashed #1e2530;
@@ -407,6 +424,7 @@ body {
 
 /* ── ZOOM CONTROL ── */
 .zoom-control { display: flex; align-items: center; gap: 5px; }
+@media (max-width: 700px) { .zoom-control { display: none; } }
 .zoom-slider {
   width: 72px; cursor: pointer; accent-color: #4f7ef8;
   height: 3px; border-radius: 2px;
@@ -642,6 +660,9 @@ body {
         <button class="team-btn" data-scoring="ppr" onclick="setScoringBoard('ppr')">PPR</button>
         <button class="team-btn" data-scoring="std" onclick="setScoringBoard('std')">Std</button>
       </div>
+      <div class="team-toggle" style="transform:scale(0.88);transform-origin:left center">
+        <button class="team-btn" id="btn-3rr" onclick="toggle3RR()" title="Third Round Reversal — round 3 restarts from the right">3RR</button>
+      </div>
       <div class="zoom-control">
         <span class="ctrl-label">Zoom:</span>
         <input type="range" class="zoom-slider" id="zoom-slider" min="25" max="100" value="100"
@@ -693,6 +714,7 @@ let draftMeta     = {};
 let teamCount     = 12;
 let scoringFormat = 'half_ppr';  // 'half_ppr' | 'ppr' | 'std'
 let isSuperflex   = false;       // detected from draft settings
+let is3RR         = false;       // Third Round Reversal draft format
 let draftId       = '';
 let platform      = 'sleeper';   // 'sleeper' | 'espn' | 'yahoo'
 let espnLeagueId  = '';
@@ -997,6 +1019,11 @@ function setScoringBoard(fmt) {
   scoringFormat = fmt;
   document.querySelectorAll('#board-scoring-toggle .team-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.scoring === fmt));
+  renderBoard();
+}
+function toggle3RR() {
+  is3RR = !is3RR;
+  document.getElementById('btn-3rr').classList.toggle('active', is3RR);
   renderBoard();
 }
 
@@ -1396,6 +1423,14 @@ function renderSidebar() {
   document.getElementById('sidebar-list').innerHTML = html;
 }
 
+// Returns true if round r (0-indexed) flows left→right.
+// Normal snake: even r = forward, odd r = backward.
+// 3RR: round 3 (r=2) also goes backward, resuming normal snake from round 4.
+function getRoundIsForward(r) {
+  if (is3RR && r === 2) return false;
+  return r % 2 === 0;
+}
+
 // ── Render ──
 function renderBoard() {
   const tc     = teamCount;
@@ -1423,7 +1458,7 @@ function renderBoard() {
     const rank        = idx + 1;
     const round       = Math.ceil(rank / tc) - 1;        // 0-indexed
     const posInRound  = rank - round * tc;                // 1 → tc
-    const col         = (round % 2 === 0)
+    const col         = getRoundIsForward(round)
                           ? posInRound - 1
                           : tc - posInRound;              // 0-indexed
     if (round < rounds) {
@@ -1453,9 +1488,17 @@ function renderBoard() {
     html += `<div style="display:grid;grid-template-columns:${colCss};gap:${gapPx}px;margin-bottom:${gapPx}px">`;
     html += `<div class="round-label-cell">Rd ${r + 1}</div>`;
 
+    const roundIsForward = getRoundIsForward(r);
+    const isLastRound    = r === rounds - 1;
+
     for (let c = 0; c < tc; c++) {
       const p = grid[r][c];
       if (!p) { html += `<div class="pick-card empty"></div>`; continue; }
+
+      // Arrow direction for this card
+      const isTurnCard = !isLastRound && (roundIsForward ? c === tc - 1 : c === 0);
+      const arrowChar  = isTurnCard ? '↓' : (roundIsForward ? '→' : '←');
+      const arrowCls   = isTurnCard ? 'card-arrow arrow-turn' : 'card-arrow';
 
       // Sleeper match via helper (handles aliases + prefix fallback)
       const key1 = normName(p.name);
@@ -1485,8 +1528,10 @@ function renderBoard() {
 
       const adpDisplay = adpRank != null ? `<span class="card-adp-val">${adpRank}</span>` : `<span class="card-adp-na">—</span>`;
 
+      const isOnClock = !isDrafted && overallPick === currentPickNo;
+
       html += `
-        <div class="pick-card ${bg}${isDrafted ? ' drafted' : ''}">
+        <div class="pick-card ${bg}${isDrafted ? ' drafted' : ''}${isOnClock ? ' card-onclock' : ''}">
           <div class="tier-strip" style="background:${tierHsl(p.tier)}">${p.tier}</div>
           <div class="card-body">
             ${(() => { const dn = displayName(p.name); const sp = dn.indexOf(' ');
@@ -1509,6 +1554,7 @@ function renderBoard() {
               ${adpDisplay}
             </div>
           </div>
+          <span class="${arrowCls}">${arrowChar}</span>
         </div>`;
     }
     html += `</div>`;
@@ -1538,35 +1584,20 @@ function applyBoardZoom() {
     const gridH    = grid.scrollHeight;
     if (!gridW || !gridH) return;
 
-    let zoom;
     if (window.innerWidth <= 700) {
-      // Mobile: show ~5 rows at near-natural card size, user scrolls horizontally
-      const rounds = parseInt(document.getElementById('rounds-select')?.value || 15, 10);
-      const rowH   = gridH / rounds;
-      zoom = Math.min(1.0, (availH * 0.9) / (5 * rowH));
-      zoom = Math.max(0.5, zoom);
-    } else {
-      // Desktop: fit the entire board in the viewport, min 0.65 so cards stay readable
-      zoom = Math.min(availW / gridW, availH / gridH, 1);
-      zoom = Math.max(0.65, zoom);
+      // Mobile: native pinch-to-zoom handles scaling — don't force a zoom level.
+      // Just reset to 1 so the board is full-width and the user can pinch freely.
+      grid.style.zoom = 1;
+      return;
     }
 
+    // Desktop: fit the entire board in the viewport, min 0.65 so cards stay readable
+    const zoom = Math.max(0.65, Math.min(availW / gridW, availH / gridH, 1));
     grid.style.zoom = zoom;
     const slider = document.getElementById('zoom-slider');
     const pct    = document.getElementById('zoom-pct');
     if (slider) slider.value = Math.round(zoom * 100);
     if (pct)    pct.textContent = Math.round(zoom * 100) + '%';
-
-    // Mobile: auto-scroll so the active round is centered
-    if (window.innerWidth <= 700) {
-      const nextPick = draftedPicks.size + 1;
-      const activeRound = Math.ceil(nextPick / teamCount);
-      const rounds      = parseInt(document.getElementById('rounds-select')?.value || 15, 10);
-      const rowH        = gridH / rounds;
-      const targetY     = Math.max(0, (activeRound - 2) * rowH * zoom);
-      const wrapper     = document.getElementById('board-grid-wrapper') || grid.parentElement;
-      if (wrapper) wrapper.scrollTop = targetY;
-    }
   });
 }
 
