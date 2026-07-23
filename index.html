@@ -667,12 +667,31 @@ body {
 .zoom-control { display: flex; align-items: center; gap: 5px; }
 @media (max-width: 700px) {
   .zoom-control { display: none; }
-  /* Board header: shrink right padding to just clear the auth chips (no email box) */
-  .board-header { padding-right: 110px; }
-  /* Hide email box — too wide on mobile, user is already signed in */
+
+  /* Board header: two-row layout on mobile.
+     Row 1: title block (auth bar floats over empty right of this row).
+     Row 2: all controls, full width, scrollable if needed. */
+  .board-header {
+    flex-wrap: wrap;
+    padding: 8px 130px 6px 12px; /* right pad on row 1 only — clears auth chips */
+    row-gap: 4px;
+    align-items: flex-start;
+  }
+  /* Title row fills full width so controls land on their own row */
+  .board-header > div:first-child { flex: 1 1 100%; }
+  .board-controls {
+    flex: 1 1 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-right: 0;   /* no auth-bar overlap on row 2 */
+    padding-bottom: 2px;
+  }
+
+  /* Hide email box — redundant on mobile */
   .auth-email-box { display: none; }
-  /* Auth bar closer to edge */
-  .auth-bar { right: 10px; top: 10px; }
+  /* Auth bar tighter to edge */
+  .auth-bar { right: 8px; top: 8px; }
 }
 .zoom-slider {
   width: 72px; cursor: pointer; accent-color: #4f7ef8;
@@ -1959,9 +1978,13 @@ function applyBoardZoom() {
     if (!gridW || !gridH) return;
 
     if (window.innerWidth <= 700) {
-      // Mobile: native pinch-to-zoom handles scaling — don't force a zoom level.
-      // Just reset to 1 so the board is full-width and the user can pinch freely.
-      grid.style.zoom = 1;
+      // Mobile: start zoomed out enough to see the full board width; user can pinch from there.
+      const mobileZoom = Math.max(0.25, Math.min(availW / gridW, 1));
+      grid.style.zoom = mobileZoom;
+      const slider = document.getElementById('zoom-slider');
+      if (slider) slider.value = Math.round(mobileZoom * 100);
+      const pct = document.getElementById('zoom-pct');
+      if (pct) pct.textContent = Math.round(mobileZoom * 100) + '%';
       return;
     }
 
