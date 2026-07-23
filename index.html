@@ -377,7 +377,7 @@ body {
 }
 .board-title { font-size: 15px; font-weight: 700; color: #f1f5f9; }
 .board-meta { font-size: 10px; color: #374151; margin-top: 2px; }
-.board-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.board-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; row-gap: 4px; justify-content: flex-end; }
 
 /* Sync controls */
 .sync-area {
@@ -400,6 +400,19 @@ body {
 .sync-dot.syncing { background: #4f7ef8; animation: pulse 0.8s ease-in-out infinite; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 .sync-clock { font-size: 10px; color: #475569; font-variant-numeric: tabular-nums; }
+.sync-interval-group {
+  display: flex; align-items: center; gap: 0;
+  border: 1px solid #2d3748; border-radius: 5px; overflow: hidden;
+}
+.sync-interval-group button {
+  padding: 3px 6px; background: transparent; border: none;
+  border-left: 1px solid #2d3748; color: #475569;
+  font-size: 10px; font-weight: 600; cursor: pointer; line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+.sync-interval-group button:first-child { border-left: none; }
+.sync-interval-group button:hover { background: #1e2530; color: #94a3b8; }
+.sync-interval-group button.active { background: #1e2d45; color: #4f7ef8; }
 .sync-btn {
   padding: 3px 8px;
   background: transparent;
@@ -652,7 +665,15 @@ body {
 
 /* ── ZOOM CONTROL ── */
 .zoom-control { display: flex; align-items: center; gap: 5px; }
-@media (max-width: 700px) { .zoom-control { display: none; } }
+@media (max-width: 700px) {
+  .zoom-control { display: none; }
+  /* Board header: shrink right padding to just clear the auth chips (no email box) */
+  .board-header { padding-right: 110px; }
+  /* Hide email box — too wide on mobile, user is already signed in */
+  .auth-email-box { display: none; }
+  /* Auth bar closer to edge */
+  .auth-bar { right: 10px; top: 10px; }
+}
 .zoom-slider {
   width: 72px; cursor: pointer; accent-color: #4f7ef8;
   height: 3px; border-radius: 2px;
@@ -948,6 +969,12 @@ body {
         <div class="sync-dot" id="sync-dot"></div>
         <div class="spinner-sm" id="sync-spinner"></div>
         <span class="sync-clock" id="sync-clock">—</span>
+        <div class="sync-interval-group" id="sync-interval-group">
+          <button onclick="setSyncInterval(5000)"  data-ms="5000">5s</button>
+          <button onclick="setSyncInterval(10000)" data-ms="10000">10s</button>
+          <button onclick="setSyncInterval(15000)" data-ms="15000">15s</button>
+          <button onclick="setSyncInterval(30000)" data-ms="30000" class="active">30s</button>
+        </div>
         <button class="sync-btn" id="sync-btn" onclick="manualSync()">↻ Sync</button>
         <span class="adp-status" id="adp-status" style="display:none">
           <span class="spinner-xs" id="adp-spinner"></span>
@@ -1062,6 +1089,7 @@ const espnCache   = new Map();   // ESPN playerId → normName (persists across 
 let lastSync       = null;   // Date of last pick sync
 let autoTimer      = null;   // setInterval handle
 let clockTimer     = null;   // setInterval for clock display
+let syncIntervalMs = 30000;  // user-selected polling cadence
 let teamWeek17     = {};     // team abbr -> { opp, isHome } for week 17
 let adpFieldName   = null;   // detected ADP field name (for header)
 let adpRankedCount = 0;      // players with valid ADP
@@ -1678,20 +1706,30 @@ function updateSyncUI(syncing) {
     clock.textContent = lastSync.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
     // Dot colour: green if <40s, amber if stale
     const age = (Date.now() - lastSync.getTime()) / 1000;
-    dot.className = 'sync-dot' + (age > 40 ? ' stale' : '');
+    dot.className = 'sync-dot' + (age > (syncIntervalMs / 1000) * 1.5 ? ' stale' : '');
   }
+}
+
+function setSyncInterval(ms) {
+  syncIntervalMs = ms;
+  // Update active pill
+  document.querySelectorAll('#sync-interval-group button').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.ms) === ms);
+  });
+  // Restart timer with new cadence if already running
+  if (autoTimer) startAutoSync();
 }
 
 function startAutoSync() {
   stopAutoSync();
-  // Tick clock every second (just for colour freshness indicator)
+  // Tick clock display every 5s (just for freshness dot)
   clockTimer = setInterval(() => updateSyncUI(false), 5000);
-  // Full pick refresh every 30s
+  // Full pick refresh at user-selected cadence
   autoTimer = setInterval(async () => {
     updateSyncUI(true);
     await fetchPicks();
     renderBoard();
-  }, 30000);
+  }, syncIntervalMs);
 }
 
 function stopAutoSync() {
