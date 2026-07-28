@@ -506,10 +506,10 @@ body {
   50%       { box-shadow: 0 0 0 2.5px #fbbf24, 0 0 18px #f59e0b88; }
 }
 .card-onclock { animation: clockPulse 1.5s ease-in-out infinite; }
-/* Drafted card at current pick — lift opacity so glow is visible */
+/* Drafted cards stay faded even when on-the-clock — only the outline is visible */
 .pick-card.card-onclock.drafted {
-  opacity: 0.55 !important;
-  filter: grayscale(50%) brightness(0.7) !important;
+  opacity: 0.18 !important;
+  filter: grayscale(100%) brightness(0.5) !important;
 }
 .pick-card.empty {
   background: #161b24;
@@ -839,7 +839,7 @@ body {
 <body>
 
 <!-- ── LANDING SCREEN ── -->
-<div id="landing-screen">
+<div id="landing-screen" style="display:none">
   <div style="text-align:center">
     <div class="landing-title">The Draft Room</div>
     <div class="landing-sub">Your fantasy football command center</div>
@@ -922,9 +922,9 @@ body {
 </div>
 
 <!-- ── UPLOAD SCREEN ── -->
-<div id="upload-screen" style="display:none">
+<div id="upload-screen">
   <div style="text-align:center;position:relative;width:100%;max-width:820px">
-    <button onclick="showScreen('landing')" style="position:absolute;left:0;top:4px;background:none;border:none;color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;">← Home</button>
+    <button onclick="goToLeagues()" style="position:absolute;left:0;top:4px;background:none;border:none;color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;">🏆 My Leagues</button>
     <div class="upload-title">Draft Room</div>
     <div class="upload-subtitle">Upload your rankings CSV and Sleeper draft URL to generate your snake board</div>
   </div>
@@ -1003,11 +1003,25 @@ body {
 
       <span class="ctrl-label" style="margin-left:4px">Rounds:</span>
       <select class="rounds-select" id="rounds-select" onchange="renderBoard()">
-        <option value="10">10</option>
         <option value="12">12</option>
+        <option value="13">13</option>
+        <option value="14">14</option>
         <option value="15" selected>15</option>
+        <option value="16">16</option>
         <option value="17">17</option>
+        <option value="18">18</option>
+        <option value="19">19</option>
         <option value="20">20</option>
+        <option value="21">21</option>
+        <option value="22">22</option>
+        <option value="23">23</option>
+        <option value="24">24</option>
+        <option value="25">25</option>
+        <option value="26">26</option>
+        <option value="27">27</option>
+        <option value="28">28</option>
+        <option value="29">29</option>
+        <option value="30">30</option>
       </select>
       <div class="team-toggle" id="board-team-toggle" style="transform:scale(0.88);transform-origin:left center">
         <button class="team-btn" data-teams="10" onclick="setTeamsBoard(10)">10</button>
@@ -1873,7 +1887,13 @@ function renderBoard() {
   }
   html += `</div>`;
 
-  const currentPickNo = draftedPicks.size + 1;  // pick currently on the clock
+  // Find the next unfilled pick slot — scanning by pick_no so keepers (pre-filled slots)
+  // don't shift the on-the-clock highlight forward.
+  const filledPickNos = new Set(draftedPicks.values());
+  let currentPickNo = 1;
+  const maxPick = rounds * tc;
+  while (filledPickNos.has(currentPickNo) && currentPickNo <= maxPick) currentPickNo++;
+  if (currentPickNo > maxPick) currentPickNo = maxPick; // draft complete
 
   // Rounds
   for (let r = 0; r < rounds; r++) {
