@@ -506,22 +506,22 @@ body {
   50%       { box-shadow: 0 0 0 2.5px #fbbf24, 0 0 18px #f59e0b88; }
 }
 .card-onclock { animation: clockPulse 1.5s ease-in-out infinite; }
-/* Drafted cards stay faded even when on-the-clock — only the outline is visible */
-.pick-card.card-onclock.drafted {
-  opacity: 0.18 !important;
-  filter: grayscale(100%) brightness(0.5) !important;
-}
 .pick-card.empty {
   background: #161b24;
   border: 1px dashed #1e2530;
   min-height: 90px;
 }
 
-/* Drafted — heavy fade */
+
+/* Drafted — fade the content children, not the card element itself.
+   Keeping the card at opacity:1 means box-shadow (the on-the-clock glow) stays fully visible. */
 .pick-card.drafted {
+  pointer-events: none;
+}
+.pick-card.drafted > * {
   opacity: 0.18;
   filter: grayscale(90%) brightness(0.5);
-  pointer-events: none;
+  transition: opacity 0.3s, filter 0.3s;
 }
 
 /* Tier strip — number upright, no head-tilt needed */
@@ -2894,7 +2894,7 @@ function buildRosterPlayers(roster) {
     // Fallback: use Sleeper adpRank when no CSV uploaded
     if (rank == null && sInfo?.adpRank != null) rank = sInfo.adpRank;
     const proj = leagueProjections[pid] ?? null;
-    const pos  = sInfo?.pos || p?.position || '?';
+    const pos  = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
     return { pid, name: displayStr, pos, rank, tier: tier ?? null, projPts: proj, team: sInfo?.team || '' };
   });
   return players;
