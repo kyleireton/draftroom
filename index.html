@@ -912,6 +912,7 @@ body {
       <div class="wire-filter" id="wire-filter">
         <span class="wire-pill active" data-pos="ALL" onclick="setWireFilter('ALL')">All</span>
         <span class="wire-pill" data-pos="QB" onclick="setWireFilter('QB')">QB</span>
+        <span class="wire-pill" data-pos="FLEX" onclick="setWireFilter('FLEX')">Flex</span>
         <span class="wire-pill" data-pos="RB" onclick="setWireFilter('RB')">RB</span>
         <span class="wire-pill" data-pos="WR" onclick="setWireFilter('WR')">WR</span>
         <span class="wire-pill" data-pos="TE" onclick="setWireFilter('TE')">TE</span>
@@ -2047,6 +2048,8 @@ window.addEventListener('load', async () => {
   const { data: { session } } = await sb.auth.getSession();
   currentUser = session?.user ?? null;
   updateAuthUI();
+  // In regular season, default to leagues view for signed-in users
+  if (currentUser) { showScreen('leagues'); initLeaguesScreen(); }
 });
 
 sb.auth.onAuthStateChange((event, session) => {
@@ -2888,7 +2891,10 @@ function buildRosterPlayers(roster) {
     // CSV match — rank + tier
     let rank = null, tier = null;
     if (norm && leagueCsvPlayers.length) {
-      const csvP = leagueCsvPlayers.find(p => normName(p.name) === norm);
+      const csvP = leagueCsvPlayers.find(p => {
+        const pn = normName(p.name);
+        return pn === norm || NAME_ALIASES[pn] === norm || pn === NAME_ALIASES[norm];
+      });
       if (csvP) { rank = csvP.ov; tier = csvP.tier; }
     }
     // Fallback: use Sleeper adpRank when no CSV uploaded
@@ -2983,7 +2989,8 @@ function renderWaiverWire() {
       const pid = sInfo?.id;
       if (isRostered(p.name, sInfo)) return; // on a team
       const pos = p.pos || '?';
-      if (wirePositionFilter !== 'ALL' && pos !== wirePositionFilter) return;
+      const _flexPos = new Set(['RB','WR','TE']);
+      if (wirePositionFilter !== 'ALL' && !(wirePositionFilter === 'FLEX' ? _flexPos.has(pos) : pos === wirePositionFilter)) return;
       wire.push({ name: p.name, pos, rank: p.ov, tier: p.tier, projPts: pid ? (leagueProjections[pid] ?? null) : null, pid });
     });
   } else {
@@ -2993,7 +3000,8 @@ function renderWaiverWire() {
       const norm = sleeperById[pid];
       const sInfo = norm ? sleeperByName[norm] : null;
       const pos = sInfo?.pos || '?';
-      if (wirePositionFilter !== 'ALL' && pos !== wirePositionFilter) return;
+      const _flexPos = new Set(['RB','WR','TE']);
+      if (wirePositionFilter !== 'ALL' && !(wirePositionFilter === 'FLEX' ? _flexPos.has(pos) : pos === wirePositionFilter)) return;
       wire.push({ name: norm || pid, pos, rank: null, projPts: pts, pid });
     });
     wire.sort((a, b) => (b.projPts ?? -1) - (a.projPts ?? -1));
