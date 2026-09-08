@@ -3249,6 +3249,8 @@ async function ensureMySleeperUserId() {
 // ── Open the all-leagues summary screen ──
 function openLeagueSummary() {
   if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
+  // Always clear league cache so fresh projections + fixed code path runs every time
+  allLeaguesCache = {};
   const savedKey = localStorage.getItem('dr_odds_api_key');
   const ki = document.getElementById('ls-odds-key');
   if (savedKey && ki && !ki.value) ki.value = savedKey;
@@ -3256,8 +3258,9 @@ function openLeagueSummary() {
   if (oddsLastFetched) {
     if (statusEl) { statusEl.textContent = oddsStatusText(); statusEl.className = 'ls-odds-status fresh'; }
   } else if (savedKey) {
-    // Auto-load odds using saved key — no manual click needed
     fetchAndCacheOdds();
+  } else {
+    if (statusEl) { statusEl.textContent = 'Enter key above for ENV colors'; statusEl.className = 'ls-odds-status'; }
   }
   const weekEl = document.getElementById('ls-week-label');
   if (weekEl) weekEl.textContent = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}`;
@@ -3414,21 +3417,29 @@ function buildLcMyTeam(lg, data) {
              rank, tier: tier ?? null, projPts: projections[pid] ?? null, team: sInfo?.team || '' };
   });
 
-  const ranked = players.filter(p => p.rank != null).sort((a, b) => a.rank - b.rank);
-  const top5   = ranked.slice(0, 5);
-  if (!top5.length && !csvPlayers.length) {
+  if (!players.length) {
+    return `<div class="ls-lc-section"><div class="ls-lc-section-title">★ ${escHtml(teamName)}</div><div class="ls-lc-loading">No roster data.</div></div>`;
+  }
+
+  // Full starting lineup via actual league roster positions
+  const rosterPositions = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
+  const slotted  = assignSlots(players, rosterPositions);
+  const starters = slotted.filter(p => !p.bench && p.pos !== 'DEF');
+
+  if (!starters.length && !csvPlayers.length) {
     return `<div class="ls-lc-section"><div class="ls-lc-section-title">★ ${escHtml(teamName)}</div><div class="ls-lc-loading">Upload rankings CSV in the league detail view to see player analysis.</div></div>`;
   }
 
-  // Tier counts for badges
+  // Tier counts across full roster for header badges
   const tc = { 1:0, 2:0, 3:0 };
   players.forEach(p => { if (p.tier && p.tier <= 3) tc[p.tier]++; });
   const tierHtml = [1,2,3].map(t => tc[t] ? `<span class="ls-tier-chip" style="background:${tierHsl(t)};color:#fff">T${t}×${tc[t]}</span>` : '').join('');
 
-  // Projected total (top 9)
-  const projTotal = ranked.slice(0, 9).reduce((s, p) => s + (p.projPts || 0), 0);
+  // Projected total across starters
+  const projTotal = starters.reduce((s, p) => s + (p.projPts || 0), 0);
 
-  const rows = (top5.length ? top5 : players.slice(0, 5)).map(playerRow).join('');
+  const displayList = starters.length ? starters : players.sort((a,b) => (a.rank??9999)-(b.rank??9999)).slice(0, 9);
+  const rows = displayList.map(playerRow).join('');
 
   return `<div class="ls-lc-section">
     <div class="ls-lc-section-title" style="display:flex;align-items:center;gap:6px">
@@ -3458,12 +3469,24 @@ function posTextColor(pos) {
 
 function playerRow(p) {
   const dn = displayName(p.name);
+  // Left badge: colored tier chip if tiered, else rank in bright text, else dot
+  let badge;
+  if (p.tier != null && p.tier <= 5) {
+    badge = `<span style="font-size:10px;font-weight:800;color:#fff;background:${tierHsl(p.tier)};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0">T${p.tier}</span>`;
+  } else if (p.rank != null) {
+    badge = `<span class="ls-p-rank" style="color:#cbd5e1;font-weight:700">#${p.rank}</span>`;
+  } else {
+    badge = `<span class="ls-p-rank" style="color:#374151">·</span>`;
+  }
+  // Slot label (if present — starters only)
+  const slotLabel = p.slot && p.slot !== 'BN' ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0">${p.slot === 'SUPER_FLEX' ? 'SF' : p.slot}</span>` : '';
   return `<div class="ls-player-row" style="${posRowStyle(p.pos)}">
-    ${p.rank != null ? `<span class="ls-p-rank">#${p.rank}</span>` : '<span class="ls-p-rank" style="color:#374151">—</span>'}
-    <span class="ls-p-name" title="${escHtml(dn)}">${escHtml(dn)}</span>
-    <span class="ls-p-pos" style="color:${posTextColor(p.pos)}">${p.pos}</span>
+    ${badge}
+    <span class="ls-p-name" title="${escHtml(dn)}" style="color:#f1f5f9">${escHtml(dn)}</span>
+    <span class="ls-p-pos" style="color:${posTextColor(p.pos)};font-weight:700">${p.pos}</span>
+    ${slotLabel}
     ${buildEnvBar(getImplied(p.team))}
-    <span class="ls-p-proj">${p.projPts != null ? p.projPts : ''}</span>
+    <span class="ls-p-proj" style="color:#94a3b8">${p.projPts != null ? p.projPts : ''}</span>
   </div>`;
 }
 
