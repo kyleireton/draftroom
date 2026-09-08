@@ -4187,15 +4187,27 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
 
   const rosteredNorms    = new Set();
   const rosteredDefAbbrs = new Set();
+
+  // Build a reverse alias map: any pid form → the weeklyDefMap key it represents.
+  // e.g. "LAR"→"LA", "LA"→"LA", "JAX"→"JAC", "JAC"→"JAC"
+  const defAlias = {};
+  Object.keys(weeklyDefMap).forEach(key => {
+    defAlias[key] = key;                               // canonical key maps to itself
+    Object.entries(ALT_TO_SLEEPER_ABBR).forEach(([alt, norm]) => {
+      if (norm === key) defAlias[alt] = key;           // alternate forms → key
+    });
+  });
+
   (rosters || []).forEach(r => (r.players || []).forEach(pid => {
     const n = sleeperById[pid]; if (n) rosteredNorms.add(n);
-    // Sleeper stores team defenses as team-abbr player IDs (e.g. "JAC").
-    // Normalize to Sleeper canonical abbr before checking weeklyDefMap.
-    const slpAbbr = toSleeperAbbr(pid);
-    if (weeklyDefMap[slpAbbr]) rosteredDefAbbrs.add(slpAbbr);
+    // Match DEF pid against weeklyDefMap using all known alias forms
+    const mapKey = defAlias[pid] ?? defAlias[toSleeperAbbr(pid)] ?? null;
+    if (mapKey) rosteredDefAbbrs.add(mapKey);
     // Also catch via player DB position field if present
     if (_sleeperRawPlayers?.[pid]?.position === 'DEF') {
-      rosteredDefAbbrs.add(toSleeperAbbr(_sleeperRawPlayers[pid]?.team || pid));
+      const team = _sleeperRawPlayers[pid]?.team || pid;
+      const teamKey = defAlias[team] ?? defAlias[toSleeperAbbr(team)] ?? null;
+      if (teamKey) rosteredDefAbbrs.add(teamKey);
     }
   }));
 
