@@ -3939,11 +3939,15 @@ function getUpgradePids(slotted) {
       if (canReplace) upgrades.add(bp.pid);
       return;
     }
-    if (!['RB','WR','TE'].includes(bp.pos) || bp.flexRank == null) return;
+    if (!['RB','WR','TE'].includes(bp.pos) || (bp.flexRank == null && bp.posRank == null)) return;
     // Can replace a same-position starter in a positional slot (RB/WR/TE)
-    const posReplace = starters.some(s =>
-      s.pos === bp.pos && !FLEX_SLOTS.has(s.slot) && (s.flexRank ?? 0) > (bp.flexRank ?? 9999)
-    );
+    // Prefer flexRank comparison; fall back to posRank vs posRank for positional-only players
+    const posReplace = starters.some(s => {
+      if (s.pos !== bp.pos || FLEX_SLOTS.has(s.slot)) return false;
+      if (bp.flexRank != null && s.flexRank != null) return s.flexRank > bp.flexRank;
+      if (bp.posRank != null && s.posRank != null) return s.posRank > bp.posRank;
+      return false;
+    });
     if (posReplace) { upgrades.add(bp.pid); return; }
     // Can replace the occupant of a flex slot if bench player ranks better than that specific occupant
     const flexReplace = starters.some(s =>
@@ -3979,14 +3983,16 @@ function buildWeeklyRankChip(p) {
     if (p.kRank == null) return dash;
     return chip(`#${p.kRank}`, `K Rank #${p.kRank}${p.kProjection != null ? ` · Proj ${p.kProjection.toFixed(1)}` : ''}${p.opp ? ` · vs ${p.opp}` : ''}`);
   }
-  // RB / WR / TE — show positional tier if available, flex rank as fallback
+  // RB / WR / TE — positional tier takes priority; flex rank shown as context in tooltip
   const flexRank = p.flexRank;
-  if (flexRank == null) return dash;
   if (p.posTier != null) {
-    const matchTip = p.matchup != null ? ` · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : '';
-    return chip(`T${p.posTier}`, `${p.pos} Tier ${p.posTier} · Flex #${flexRank}${matchTip}`);
+    const matchTip  = p.matchup != null ? ` · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : '';
+    const flexStr   = flexRank != null ? ` · Flex #${flexRank}` : '';
+    const posStr    = p.posRank != null ? ` · ${p.pos} #${p.posRank}` : '';
+    return chip(`T${p.posTier}`, `${p.pos} Tier ${p.posTier}${posStr}${flexStr}${matchTip}`);
   }
-  // player in FLEX list but beyond positional rankings depth — fall back to flex rank
+  if (flexRank == null) return dash;
+  // In FLEX list but beyond positional rankings depth — fall back to flex rank number
   const tip = p.matchup != null ? `${p.pos} Flex #${flexRank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `${p.pos} Flex #${flexRank}`;
   return chip(`#${flexRank}`, tip);
 }
@@ -3995,17 +4001,32 @@ function buildWeeklyRankChip(p) {
 function weeklyPlayerRow(p, isUpgrade) {
   const dn    = displayName(p.name);
   const chip  = buildWeeklyRankChip(p);
-  const slotL = p.slot && p.slot !== 'BN' ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0">${p.slot === 'SUPER_FLEX' ? 'SF' : p.slot === 'REC_FLEX' ? 'RF' : p.slot}</span>` : '';
+  // Skip slot label when it matches the position (e.g. "QB" in QB slot, "DEF" in DEF slot)
+  const slotL = (p.slot && p.slot !== 'BN' && p.slot !== p.pos) ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0">${p.slot === 'SUPER_FLEX' ? 'SF' : p.slot === 'REC_FLEX' ? 'RF' : p.slot}</span>` : '';
   const oppTag = p.opp ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0;min-width:28px">vs ${p.opp}</span>` : '';
   const upgBadge = isUpgrade ? `<span style="font-size:9px;font-weight:800;color:#22c55e;background:rgba(34,197,94,0.18);border-radius:3px;padding:1px 5px;flex-shrink:0">⬆ START</span>` : '';
   const projSpan = p.projPts != null ? `<span class="ls-p-proj" style="color:#94a3b8">${p.projPts}</span>` : `<span class="ls-p-proj"></span>`;
   const rowBg = isUpgrade ? 'background:rgba(34,197,94,0.06);' : '';
+  // DEF: show spread instead of ENV bar (no implied total); K: show projection
+  let rightMetric;
+  if (p.pos === 'DEF') {
+    const spd = p.defSpread;
+    const spdStr = spd != null ? (spd > 0 ? `+${spd}` : `${spd}`) : '—';
+    const spdColor = spd != null ? (spd < -3 ? '#22c55e' : spd > 3 ? '#ef4444' : '#eab308') : '#374151';
+    rightMetric = `<span style="font-size:10px;font-weight:700;color:${spdColor};min-width:36px;text-align:right;flex-shrink:0">${spdStr}</span>`;
+  } else if (p.pos === 'K') {
+    rightMetric = p.kProjection != null
+      ? `<span style="font-size:10px;color:#94a3b8;min-width:36px;text-align:right;flex-shrink:0">${p.kProjection.toFixed(1)} pts</span>`
+      : `<span class="ls-p-proj"></span>`;
+  } else {
+    rightMetric = buildEnvBar(p.total);
+  }
   return `<div class="ls-player-row" style="${posRowStyle(p.pos)}${rowBg}">
     ${chip}
     <span class="ls-p-name" title="${escHtml(dn)}" style="color:#f1f5f9">${escHtml(dn)}</span>
     <span class="ls-p-pos" style="color:${posTextColor(p.pos)};font-weight:700">${p.pos}</span>
     ${slotL}${oppTag}
-    ${buildEnvBar(p.total)}
+    ${rightMetric}
     ${projSpan}
     ${upgBadge}
   </div>`;
@@ -4060,7 +4081,7 @@ function buildWeeklyMyTeamSection(lg, data) {
       const fe = lookupWeekly(name, norm, weeklyFlexMap);
       if (fe) { flexRank = fe.rank; opp = fe.opp; total = fe.total; matchup = fe.matchup; }
       const posMap = pos === 'RB' ? weeklyRbMap : pos === 'WR' ? weeklyWrMap : pos === 'TE' ? weeklyTeMap : null;
-      if (posMap) { const pe = lookupWeekly(name, norm, posMap); if (pe) { posRank = pe.rank; posTier = pe.tier; } }
+      if (posMap) { const pe = lookupWeekly(name, norm, posMap); if (pe) { posRank = pe.rank; posTier = pe.tier; if (!opp) opp = pe.opp; if (!total) total = pe.total; if (!matchup) matchup = pe.matchup; } }
     }
     return { pid, name, pos, flexRank, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
   });
@@ -4124,6 +4145,10 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
   const rosteredDefAbbrs = new Set();
   (rosters || []).forEach(r => (r.players || []).forEach(pid => {
     const n = sleeperById[pid]; if (n) rosteredNorms.add(n);
+    // Sleeper stores team defenses as team-abbr player IDs (e.g. "JAC"),
+    // which are often absent from the player DB — so check weeklyDefMap directly.
+    if (weeklyDefMap[pid]) rosteredDefAbbrs.add(pid);
+    // Also catch via player DB position field if present
     if (_sleeperRawPlayers?.[pid]?.position === 'DEF') rosteredDefAbbrs.add(_sleeperRawPlayers[pid]?.team || pid);
   }));
 
