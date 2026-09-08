@@ -955,9 +955,8 @@ body {
 .ws-tab.active { background:#4f7ef8; color:#fff; }
 .ws-tab:hover:not(.active) { color:#94a3b8; }
 .ws-upgrade-row { background:rgba(34,197,94,0.06) !important; }
-.bb-toggle { display:flex; align-items:center; gap:5px; font-size:11px; color:#4b5563; cursor:pointer; user-select:none; flex-shrink:0; }
-.bb-toggle input[type=checkbox] { accent-color:#4f7ef8; width:13px; height:13px; cursor:pointer; }
-.bb-toggle:hover { color:#94a3b8; }
+.lc-collapse-btn { background:none; border:none; color:#4b5563; font-size:17px; font-weight:700; line-height:1; cursor:pointer; padding:0 2px; flex-shrink:0; transition:color 0.12s; }
+.lc-collapse-btn:hover { color:#f1f5f9; }
 .ws-info-wrap { position:relative; display:inline-flex; }
 .ws-info-btn { background:none; border:1px solid #2d3748; color:#4b5563; font-size:11px; font-weight:700; width:22px; height:22px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:color 0.12s,border-color 0.12s; }
 .ws-info-btn:hover { color:#94a3b8; border-color:#4b5563; }
@@ -1070,8 +1069,7 @@ body {
   <div class="ls-upload-bar">
     <button class="ls-upload-btn" onclick="document.getElementById('ls-rankings-file').click()">↑ Upload Rankings CSV</button>
     <button class="ls-odds-btn" onclick="fetchEspnOdds(true)" style="margin-left:4px">🔄 Refresh Odds</button>
-    <label class="bb-toggle" style="margin-left:auto"><input type="checkbox" id="ls-hide-bb" onchange="toggleHideBestBall(this.checked)"> Hide Best Ball</label>
-    <span class="ls-odds-status" id="ls-odds-status"></span>
+    <span class="ls-odds-status" id="ls-odds-status" style="margin-left:auto"></span>
     <span class="ls-upload-status" id="ls-upload-status"></span>
   </div>
   <div class="ls-body">
@@ -1111,7 +1109,6 @@ body {
   <div class="ls-upload-bar">
     <button class="ls-upload-btn" onclick="document.getElementById('ws-all-file').click()">↑ Upload Rankings</button>
     <span class="ls-upload-status" id="ws-upload-status">Upload weekly rankings CSV to see recommendations</span>
-    <label class="bb-toggle" style="margin-left:auto"><input type="checkbox" id="ws-hide-bb" onchange="toggleHideBestBall(this.checked)"> Hide Best Ball</label>
   </div>
   <div class="ls-body">
     <div id="ws-leagues-list"></div>
@@ -3422,7 +3419,6 @@ async function ensureMySleeperUserId() {
 // ── Open the all-leagues summary screen ──
 function openLeagueSummary() {
   if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
-  const lsEl = document.getElementById('ls-hide-bb'); if (lsEl) lsEl.checked = hideBestBall;
   // Always clear league cache so fresh projections + fixed code path runs every time
   allLeaguesCache = {};
   const statusEl = document.getElementById('ls-odds-status');
@@ -3446,10 +3442,7 @@ function renderLeagueSummary() {
   if (!list) return;
   if (!leagueList.length) { list.innerHTML = '<div class="ls-lc-loading">No leagues found. Connect your Sleeper account on the Leagues screen.</div>'; return; }
 
-  // Alphabetical sort, optionally hiding best ball leagues
-  const sorted = [...leagueList]
-    .filter(lg => !hideBestBall || !lg.settings?.best_ball)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
 
   // Skeleton pass: render all league cards with loading state immediately
   list.innerHTML = sorted.map(lg => {
@@ -3541,20 +3534,27 @@ async function loadOneLeagueSummary(lg, myUid, cardIndex) {
 function buildLeagueCardHtml(lg, data, isLoading) {
   const scoring = lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std';
   const meta    = `${lg.total_rosters || '?'}-team · ${scoring}`;
-  const loadingBody = `<div class="ls-lc-loading">Loading roster data…</div>`;
+  const lid     = lg.league_id;
+  const collapsed = collapsedLeagues.has(lid);
+  const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Expand' : 'Collapse'}">${collapsed ? '+' : '−'}</button>`;
 
-  let body = loadingBody;
-  if (data?.loaded) {
-    const mySection    = buildLcMyTeam(lg, data);
-    const waiverSection = buildLcWaiver(data);
-    body = mySection + (waiverSection ? `<div class="ls-lc-divider"></div>${waiverSection}` : '');
+  let body = '';
+  if (!collapsed) {
+    const loadingBody = `<div class="ls-lc-loading">Loading roster data…</div>`;
+    body = loadingBody;
+    if (data?.loaded) {
+      const mySection    = buildLcMyTeam(lg, data);
+      const waiverSection = buildLcWaiver(data);
+      body = mySection + (waiverSection ? `<div class="ls-lc-divider"></div>${waiverSection}` : '');
+    }
   }
 
-  return `<div class="ls-league-card${data?.myRosterId ? ' my-league' : ''}">
+  return `<div class="ls-league-card${data?.myRosterId ? ' my-league' : ''}" data-lid="${lid}">
     <div class="ls-lc-header">
       <span class="ls-lc-icon">🏆</span>
       <span class="ls-lc-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>
       <span class="ls-lc-meta">${meta}</span>
+      ${collapseBtn}
       <button class="ls-lc-open" onclick="loadLeagueDetail(${JSON.stringify(lg).replace(/"/g,'&quot;')})">Open →</button>
     </div>
     ${body}
@@ -3745,15 +3745,29 @@ let weeklyKMap       = {};  // normName → {rank,name,team,projection,opp}
 let weeklyFlexMap    = {};  // normName → {rank,pos,name,team,opp,total,matchup}
 let weeklyNflWeek    = null;
 let weeklyHasRankings = false;
-let hideBestBall = (() => { try { return localStorage.getItem('dr_hide_bb') === '1'; } catch(_) { return false; } })();
 
-function toggleHideBestBall(val) {
-  hideBestBall = val;
-  try { localStorage.setItem('dr_hide_bb', val ? '1' : '0'); } catch(_) {}
-  // Sync both checkboxes
-  ['ls-hide-bb','ws-hide-bb'].forEach(id => { const el = document.getElementById(id); if (el) el.checked = val; });
-  renderLeagueSummary();
-  renderWeeklySummary();
+// Per-league collapse state — persisted across sessions
+let collapsedLeagues = new Set(
+  (() => { try { return JSON.parse(localStorage.getItem('dr_collapsed_leagues') || '[]'); } catch(_) { return []; } })()
+);
+function toggleLeagueCollapse(leagueId) {
+  if (collapsedLeagues.has(leagueId)) collapsedLeagues.delete(leagueId);
+  else collapsedLeagues.add(leagueId);
+  try { localStorage.setItem('dr_collapsed_leagues', JSON.stringify([...collapsedLeagues])); } catch(_) {}
+  // Re-render just this card in-place (no full list rebuild)
+  const card = document.querySelector(`[data-lid="${leagueId}"]`);
+  if (!card) return;
+  const lg = leagueList.find(l => l.league_id === leagueId);
+  if (!lg) return;
+  const data = allLeaguesCache[leagueId] || null;
+  const tmp  = document.createElement('div');
+  // Detect which screen is active by checking parent list id
+  const inWeekly = !!card.closest('#ws-leagues-list') ||
+                   document.getElementById('weekly-summary')?.style.display !== 'none';
+  tmp.innerHTML = inWeekly
+    ? buildWeeklyLeagueCardHtml(lg, data, !data?.loaded)
+    : buildLeagueCardHtml(lg, data, !data?.loaded);
+  card.replaceWith(tmp.firstElementChild);
 }
 
 // Persist/restore from localStorage
@@ -4055,15 +4069,20 @@ function weeklyPlayerRow(p, isUpgrade) {
 
 // Build per-league weekly card HTML
 function buildWeeklyLeagueCardHtml(lg, data, loading) {
-  const name = escHtml(lg.name || 'Unknown League');
-  const meta = [(lg.settings?.num_teams || ''), lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std'].filter(Boolean).join('-team · ');
-  const hdr  = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span><span class="ls-lc-meta">${meta}</span><button class="ls-lc-open" onclick="openLeagueDetail('${lg.league_id}')">Open →</button></div>`;
-  if (loading) return `<div class="ls-league-card" data-lid="${lg.league_id}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
+  const name      = escHtml(lg.name || 'Unknown League');
+  const meta      = [(lg.settings?.num_teams || ''), lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std'].filter(Boolean).join('-team · ');
+  const lid       = lg.league_id;
+  const collapsed = collapsedLeagues.has(lid);
+  const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Expand' : 'Collapse'}">${collapsed ? '+' : '−'}</button>`;
+  const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span><span class="ls-lc-meta">${meta}</span>${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
+
+  if (collapsed) return `<div class="ls-league-card" data-lid="${lid}">${hdr}</div>`;
+  if (loading)   return `<div class="ls-league-card" data-lid="${lid}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
 
   const { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank } = buildWeeklyMyTeamSection(lg, data);
   const waiverHtml = buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank, lg);
   const isMyLeague = data?.myRosterId != null;
-  return `<div class="ls-league-card${isMyLeague ? ' my-league' : ''}" data-lid="${lg.league_id}">
+  return `<div class="ls-league-card${isMyLeague ? ' my-league' : ''}" data-lid="${lid}">
     ${hdr}${myTeamHtml}
     ${waiverHtml ? `<div class="ls-lc-divider"></div>${waiverHtml}` : ''}
   </div>`;
@@ -4229,7 +4248,6 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
 async function openWeeklySummary() {
   if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
   showScreen('weekly-summary');
-  const wsEl = document.getElementById('ws-hide-bb'); if (wsEl) wsEl.checked = hideBestBall;
   if (!weeklyNflWeek) {
     try { const s = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json()); weeklyNflWeek = s?.display_week || s?.week || 1; }
     catch(_) { weeklyNflWeek = 1; }
@@ -4247,9 +4265,7 @@ async function openWeeklySummary() {
 function renderWeeklySummary() {
   const list = document.getElementById('ws-leagues-list'); if (!list) return;
   if (!leagueList.length) { list.innerHTML = '<div class="ls-lc-loading">No leagues found.</div>'; return; }
-  const sorted = [...leagueList]
-    .filter(lg => !hideBestBall || !lg.settings?.best_ball)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
   list.innerHTML = sorted.map(lg => buildWeeklyLeagueCardHtml(lg, null, true)).join('');
   ensureMySleeperUserId().then(myUid => {
     ensureSleeperDb().then(() => {
