@@ -834,6 +834,103 @@ body {
 .auth-text-row { text-align:center; font-size:12px; color:#4b5563; }
 .auth-text-row button { background:none; border:none; color:#4f7ef8; cursor:pointer; font-size:12px; padding:0; }
 .auth-text-row button:hover { color:#93c5fd; }
+
+/* ── LEAGUE SUMMARY SCREEN ── */
+#league-summary-screen {
+  position: fixed; inset: 0; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.ls-header {
+  position: sticky; top: 0; z-index: 10;
+  background: #0d1117; border-bottom: 1px solid #1e2530;
+  padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.ls-title { font-size: 16px; font-weight: 700; color: #f1f5f9; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-meta  { font-size: 11px; color: #4b5563; }
+.ls-odds-row { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.ls-odds-input { background: #111827; border: 1px solid #2d3748; border-radius: 6px; padding: 5px 10px; font-size: 11px; color: #94a3b8; outline: none; width: 220px; }
+.ls-odds-input:focus { border-color: #3b82f6; }
+.ls-odds-btn { background: #1e3358; border: 1px solid #3b6fe8; border-radius: 6px; padding: 5px 12px; font-size: 11px; font-weight: 600; color: #93c5fd; cursor: pointer; white-space: nowrap; }
+.ls-odds-btn:hover { background: #1d4ed8; color: #fff; }
+.ls-odds-status { font-size: 10px; color: #4b5563; }
+.ls-odds-status.fresh { color: #4ade80; }
+.ls-body { padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+/* ENV bar */
+.env-bar-wrap  { display: flex; align-items: center; gap: 5px; }
+.env-bar-bg    { width: 52px; height: 5px; background: #1e2530; border-radius: 3px; overflow: hidden; flex-shrink: 0; }
+.env-bar-fill  { height: 100%; border-radius: 3px; }
+.env-implied   { font-size: 10px; font-weight: 700; min-width: 28px; text-align: right; }
+/* Waiver panel */
+.ls-waiver { background: #111827; border: 1px solid #1e2530; border-radius: 12px; padding: 14px 16px; }
+.ls-waiver-title { font-size: 11px; font-weight: 700; color: #4b5563; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+.ls-waiver-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.ls-waiver-col-title { font-size: 10px; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; border-bottom: 1px solid #1e2530; padding-bottom: 4px; }
+.ls-wire-row  { display: flex; align-items: center; gap: 7px; padding: 4px 0; border-bottom: 1px solid #0d1117; }
+.ls-wire-row:last-child { border-bottom: none; }
+.ls-wire-rank { font-size: 10px; font-weight: 700; color: #374151; min-width: 24px; }
+.ls-wire-name { font-size: 11px; font-weight: 600; color: #e2e8f0; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-wire-pos  { font-size: 9px; font-weight: 700; color: #4b5563; min-width: 20px; }
+.ls-wire-proj { font-size: 10px; color: #64748b; min-width: 28px; text-align: right; }
+/* Team grid */
+.ls-team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.ls-team-card { background: #111827; border: 1px solid #1e2530; border-radius: 12px; overflow: hidden; }
+.ls-team-card.my-team { border-color: #166534; box-shadow: 0 0 0 1px #166534; }
+.ls-team-hdr  { padding: 10px 14px; background: #0d1117; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ls-team-name { font-size: 13px; font-weight: 700; color: #f1f5f9; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-team-env  { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+.ls-team-badges { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 14px 6px; flex-wrap: wrap; }
+.ls-power-rank { font-size: 9px; font-weight: 800; color: #374151; }
+.ls-tier-chip { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
+.ls-depth-flag { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: #1e2530; color: #4b5563; }
+.ls-depth-flag.deep { background: #14532d; color: #86efac; }
+.ls-depth-flag.thin { background: #7f1d1d; color: #fca5a5; }
+/* Player rows */
+.ls-player-row  { display: flex; align-items: center; gap: 7px; padding: 4px 14px; border-bottom: 1px solid #0d1117; }
+.ls-player-row:last-child { border-bottom: none; }
+.ls-p-rank { font-size: 10px; font-weight: 700; color: #374151; min-width: 26px; }
+.ls-p-name { font-size: 11px; font-weight: 600; color: #e2e8f0; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-p-pos  { font-size: 9px; font-weight: 700; min-width: 20px; }
+.ls-p-proj { font-size: 10px; color: #64748b; min-width: 28px; text-align: right; }
+@media (max-width: 600px) {
+  .ls-waiver-cols { grid-template-columns: 1fr; }
+  .ls-team-grid   { grid-template-columns: 1fr; }
+  .ls-odds-input  { width: 140px; }
+}
+
+/* ── Per-league summary cards ── */
+#ls-leagues-list {
+  display: flex; flex-direction: column;
+  padding: 12px 14px; max-width: 720px;
+  margin: 0 auto; width: 100%; box-sizing: border-box;
+}
+.ls-league-card {
+  background: #1e2533; border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 14px;
+  border: 1px solid #2d3748;
+}
+.ls-league-card.my-league { border-color: #4f7ef8; }
+.ls-lc-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.ls-lc-icon { font-size: 16px; }
+.ls-lc-name {
+  font-size: 14px; font-weight: 700; color: #e2e8f0;
+  flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ls-lc-meta { font-size: 11px; color: #4b5563; white-space: nowrap; }
+.ls-lc-open {
+  background: #2d3748; border: none; color: #94a3b8;
+  font-size: 11px; font-weight: 600; padding: 4px 10px;
+  border-radius: 6px; cursor: pointer; white-space: nowrap;
+}
+.ls-lc-open:hover { background: #374151; color: #e2e8f0; }
+.ls-lc-section { margin-top: 8px; }
+.ls-lc-section-title {
+  font-size: 10px; font-weight: 700; color: #4b5563;
+  letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 5px;
+}
+.ls-lc-loading { font-size: 11px; color: #374151; padding: 6px 0; font-style: italic; }
+.ls-lc-divider { height: 1px; background: #2d3748; margin: 8px 0; }
 </style>
 </head>
 <body>
@@ -865,6 +962,7 @@ body {
   <div class="leagues-header">
     <button class="leagues-back" onclick="showScreen('landing')">← Home</button>
     <div class="leagues-title">My Leagues</div>
+    <button class="leagues-back" onclick="openLeagueSummary()" style="margin-left:auto;font-size:12px">📊 All Summary</button>
   </div>
   <div class="leagues-body">
     <!-- Username entry card — shown only if no username saved -->
@@ -890,6 +988,7 @@ body {
   <div class="ld-header">
     <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
     <button class="ld-back" onclick="goToDraftFromLeague()" style="margin-left:8px">Draft Room →</button>
+    <button class="ld-back" onclick="openLeagueSummary()" style="margin-left:8px">📊 Summary</button>
     <div>
       <div class="ld-league-name" id="ld-league-name">—</div>
       <div class="ld-meta" id="ld-meta"></div>
@@ -919,6 +1018,26 @@ body {
       </div>
       <div class="wire-list" id="wire-list"></div>
     </div>
+  </div>
+</div>
+
+<!-- ── LEAGUE SUMMARY SCREEN ── -->
+<div id="league-summary-screen" style="display:none">
+  <div class="ls-header">
+    <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
+    <div style="flex:1;min-width:0">
+      <div class="ls-title">All Leagues</div>
+      <div class="ls-meta" id="ls-week-label"></div>
+    </div>
+    <div class="ls-odds-row">
+      <input class="ls-odds-input" id="ls-odds-key" placeholder="Odds API key (the-odds-api.com, free)" autocomplete="off"
+             onkeydown="if(event.key==='Enter')fetchAndCacheOdds()">
+      <button class="ls-odds-btn" onclick="fetchAndCacheOdds()">⚡ Load Odds</button>
+      <span class="ls-odds-status" id="ls-odds-status"></span>
+    </div>
+  </div>
+  <div class="ls-body">
+    <div id="ls-leagues-list"></div>
   </div>
 </div>
 
@@ -1080,13 +1199,14 @@ body {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 // ── App navigation ──
-const ALL_SCREENS = ['landing-screen','upload-screen','board-screen','leagues-screen','league-detail-screen'];
+const ALL_SCREENS = ['landing-screen','upload-screen','board-screen','leagues-screen','league-detail-screen','league-summary-screen'];
 function showScreen(name) {
   ALL_SCREENS.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     const isTarget = id === name + '-screen' || id === name;
     el.style.display = isTarget ? (id === 'board-screen' || id === 'league-detail-screen' ? 'flex' : '') : 'none';
+    if (isTarget && id === 'league-summary-screen') el.style.display = 'flex';
   });
 }
 let boardIsActive = false; // true once a draft board has been successfully loaded
@@ -2290,6 +2410,8 @@ let leagueCsvPlayers      = [];   // CSV rankings uploaded for league view
 let wirePositionFilter    = 'ALL';
 let leagueMyRosterId      = null; // roster_id for currentUser
 let currentLeagueId       = null; // tracks which league is loaded — skip re-fetch on same league
+let allLeaguesCache       = {};   // leagueId → { rosters, users, projections, csvPlayers, myRosterId, loaded }
+let mySleeperUserId       = null; // cached Sleeper user_id for identifying "my" roster across leagues
 
 // ── Supabase profile helpers ──
 // NOTE: Run this SQL once in your Supabase SQL editor:
@@ -3027,6 +3149,356 @@ function renderWaiverWire() {
 
   if (!top.length) listEl.innerHTML = '<div style="font-size:11px;color:#2d3748;padding:8px">No players found</div>';
 }
+
+// ════════════════════════════════════════════════════════
+// ── LEAGUE SUMMARY + IMPLIED ODDS ──
+
+const ODDS_TEAM_MAP = {
+  'Arizona Cardinals':'ARI','Atlanta Falcons':'ATL','Baltimore Ravens':'BAL',
+  'Buffalo Bills':'BUF','Carolina Panthers':'CAR','Chicago Bears':'CHI',
+  'Cincinnati Bengals':'CIN','Cleveland Browns':'CLE','Dallas Cowboys':'DAL',
+  'Denver Broncos':'DEN','Detroit Lions':'DET','Green Bay Packers':'GB',
+  'Houston Texans':'HOU','Indianapolis Colts':'IND','Jacksonville Jaguars':'JAX',
+  'Kansas City Chiefs':'KC','Las Vegas Raiders':'LV','Los Angeles Chargers':'LAC',
+  'Los Angeles Rams':'LA','Miami Dolphins':'MIA','Minnesota Vikings':'MIN',
+  'New England Patriots':'NE','New Orleans Saints':'NO','New York Giants':'NYG',
+  'New York Jets':'NYJ','Philadelphia Eagles':'PHI','Pittsburgh Steelers':'PIT',
+  'San Francisco 49ers':'SF','Seattle Seahawks':'SEA','Tampa Bay Buccaneers':'TB',
+  'Tennessee Titans':'TEN','Washington Commanders':'WAS',
+};
+
+let impliedTotals   = {};   // team abbr → implied pts
+let oddsLastFetched = null; // ms timestamp
+
+// Load cached odds on startup (survives page reload, avoids burning API quota)
+(function loadCachedOdds() {
+  try {
+    const raw = localStorage.getItem('dr_implied_totals');
+    if (!raw) return;
+    const { ts, data } = JSON.parse(raw);
+    if (Date.now() - ts < 24 * 3600 * 1000) { impliedTotals = data; oddsLastFetched = ts; }
+  } catch(_) {}
+})();
+
+function oddsStatusText() {
+  if (!oddsLastFetched) return '';
+  const hrs = Math.round((Date.now() - oddsLastFetched) / 3600000);
+  return hrs < 1 ? 'Updated just now' : `Updated ${hrs}h ago`;
+}
+
+async function fetchAndCacheOdds() {
+  const keyInput = document.getElementById('ls-odds-key');
+  const statusEl = document.getElementById('ls-odds-status');
+  const key = (keyInput?.value?.trim()) || localStorage.getItem('dr_odds_api_key') || '';
+  if (!key) {
+    if (statusEl) { statusEl.textContent = 'Enter an API key first'; statusEl.className = 'ls-odds-status'; }
+    return;
+  }
+  localStorage.setItem('dr_odds_api_key', key);
+  if (statusEl) { statusEl.textContent = 'Fetching…'; statusEl.className = 'ls-odds-status'; }
+  try {
+    const url = `https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds/?apiKey=${encodeURIComponent(key)}&regions=us&markets=spreads,totals&oddsFormat=american`;
+    const res  = await fetch(url);
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const games = await res.json();
+    const totals = {};
+    (games || []).forEach(game => {
+      const homeAbbr = ODDS_TEAM_MAP[game.home_team];
+      const awayAbbr = ODDS_TEAM_MAP[game.away_team];
+      if (!homeAbbr || !awayAbbr) return;
+      for (const bk of (game.bookmakers || [])) {
+        const spreadMkt = bk.markets?.find(m => m.key === 'spreads');
+        const totalMkt  = bk.markets?.find(m => m.key === 'totals');
+        if (!spreadMkt || !totalMkt) continue;
+        const total      = totalMkt.outcomes?.[0]?.point;
+        const homeOut    = spreadMkt.outcomes?.find(o => o.name === game.home_team);
+        const homeSpread = homeOut?.point; // negative = home team favored
+        if (total == null || homeSpread == null) continue;
+        totals[homeAbbr] = Math.round(((total - homeSpread) / 2) * 10) / 10;
+        totals[awayAbbr] = Math.round(((total + homeSpread) / 2) * 10) / 10;
+        break;
+      }
+    });
+    impliedTotals   = totals;
+    oddsLastFetched = Date.now();
+    localStorage.setItem('dr_implied_totals', JSON.stringify({ ts: oddsLastFetched, data: totals }));
+    const gameCount = Math.round(Object.keys(totals).length / 2);
+    if (statusEl) { statusEl.textContent = `✓ ${gameCount} games loaded`; statusEl.className = 'ls-odds-status fresh'; }
+    renderLeagueSummary();
+  } catch(e) {
+    if (statusEl) { statusEl.textContent = 'Error: ' + e.message; statusEl.className = 'ls-odds-status'; }
+  }
+}
+
+function getImplied(teamAbbr) { return impliedTotals[teamAbbr] ?? null; }
+
+function envColor(v) {
+  if (!v) return '#374151';
+  if (v >= 25) return '#22c55e';
+  if (v >= 22) return '#eab308';
+  if (v >= 19) return '#f97316';
+  return '#ef4444';
+}
+
+function buildEnvBar(implied) {
+  if (!implied) return `<div class="env-bar-wrap"><div class="env-bar-bg"><div class="env-bar-fill" style="width:0"></div></div><span class="env-implied" style="color:#374151">—</span></div>`;
+  const pct   = Math.min(100, Math.round((implied / 32) * 100));
+  const color = envColor(implied);
+  return `<div class="env-bar-wrap"><div class="env-bar-bg"><div class="env-bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="env-implied" style="color:${color}">${implied}</span></div>`;
+}
+
+// ── Resolve my Sleeper user_id (cached across leagues) ──
+async function ensureMySleeperUserId() {
+  if (mySleeperUserId) return mySleeperUserId;
+  if (!leagueSleeperUsername) return null;
+  try {
+    const res = await fetch(`https://api.sleeper.app/v1/user/${leagueSleeperUsername}`);
+    const d   = await res.json();
+    mySleeperUserId = d?.user_id || null;
+  } catch(_) {}
+  return mySleeperUserId;
+}
+
+// ── Open the all-leagues summary screen ──
+function openLeagueSummary() {
+  if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
+  const savedKey = localStorage.getItem('dr_odds_api_key');
+  if (savedKey) { const ki = document.getElementById('ls-odds-key'); if (ki && !ki.value) ki.value = savedKey; }
+  const statusEl = document.getElementById('ls-odds-status');
+  if (statusEl && oddsLastFetched) { statusEl.textContent = oddsStatusText(); statusEl.className = 'ls-odds-status fresh'; }
+  const weekEl = document.getElementById('ls-week-label');
+  if (weekEl) weekEl.textContent = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}`;
+  showScreen('league-summary');
+  renderLeagueSummary();
+}
+
+// ── Main renderer: one card per league ──
+function renderLeagueSummary() {
+  const list = document.getElementById('ls-leagues-list');
+  if (!list) return;
+  if (!leagueList.length) { list.innerHTML = '<div class="ls-lc-loading">No leagues found. Connect your Sleeper account on the Leagues screen.</div>'; return; }
+
+  // Skeleton pass: render all league cards with loading state immediately
+  list.innerHTML = leagueList.map(lg => {
+    const cached = allLeaguesCache[lg.league_id];
+    return buildLeagueCardHtml(lg, cached || null, true);
+  }).join('');
+
+  // Async: load each league's data (skip if already cached)
+  ensureMySleeperUserId().then(myUid => {
+    ensureSleeperDb().then(() => {
+      leagueList.forEach((lg, i) => {
+        if (allLeaguesCache[lg.league_id]?.loaded) {
+          // Already have data — just re-render its card
+          const el = list.children[i];
+          if (el) el.outerHTML = buildLeagueCardHtml(lg, allLeaguesCache[lg.league_id], false);
+        } else {
+          loadOneLeagueSummary(lg, myUid, i);
+        }
+      });
+    });
+  });
+}
+
+// ── Load roster + users + projections + rankings for one league, then update its card ──
+async function loadOneLeagueSummary(lg, myUid, cardIndex) {
+  try {
+    const season     = new Date().getFullYear();
+    const scoringKey = lg.scoring_settings?.rec === 1 ? 'pts_ppr' : lg.scoring_settings?.rec === 0.5 ? 'pts_half_ppr' : 'pts_std';
+    const [stateRes, rosterRes, userRes] = await Promise.all([
+      fetch('https://api.sleeper.app/v1/state/nfl'),
+      fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/rosters`),
+      fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/users`),
+    ]);
+    const nflState   = await stateRes.json();
+    const rosters    = await rosterRes.json();
+    const users      = await userRes.json();
+    const week       = nflState?.display_week || nflState?.week || 1;
+
+    let projections = {};
+    try {
+      const pRes = await fetch(`https://api.sleeper.app/v1/projections/nfl/${season}/${week}`);
+      const pRaw = await pRes.json();
+      Object.entries(pRaw || {}).forEach(([pid, stats]) => {
+        const pts = stats[scoringKey] ?? stats.pts_half_ppr ?? stats.pts_ppr ?? stats.pts_std ?? null;
+        if (pts != null) projections[pid] = Math.round(pts * 10) / 10;
+      });
+    } catch(_) {}
+
+    // Load rankings from Supabase for this league
+    let csvPlayers = [];
+    if (currentUser && lg.league_id) {
+      try {
+        const { data } = await sb.from('league_rankings')
+          .select('csv_data, updated_at')
+          .eq('user_id', currentUser.id)
+          .eq('league_id', lg.league_id)
+          .single();
+        if (data?.csv_data) {
+          csvPlayers = await new Promise(resolve => parseCSVText(data.csv_data, resolve, true));
+        }
+      } catch(_) {}
+    }
+
+    // Identify my roster
+    let myRosterId = null;
+    if (myUid) {
+      const myRoster = rosters.find(r => r.owner_id === myUid);
+      if (myRoster) myRosterId = myRoster.roster_id;
+    }
+
+    const cacheEntry = { rosters, users, projections, csvPlayers, myRosterId, loaded: true };
+    allLeaguesCache[lg.league_id] = cacheEntry;
+
+    // Update just this league's card in the DOM
+    const list = document.getElementById('ls-leagues-list');
+    if (list && list.children[cardIndex]) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = buildLeagueCardHtml(lg, cacheEntry, false);
+      list.children[cardIndex].replaceWith(tmp.firstElementChild);
+    }
+  } catch(e) {
+    const list = document.getElementById('ls-leagues-list');
+    if (list && list.children[cardIndex]) {
+      list.children[cardIndex].querySelector('.ls-lc-loading').textContent = 'Failed to load: ' + e.message;
+    }
+  }
+}
+
+// ── Build one league card's HTML ──
+function buildLeagueCardHtml(lg, data, isLoading) {
+  const scoring = lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std';
+  const meta    = `${lg.total_rosters || '?'}-team · ${scoring}`;
+  const loadingBody = `<div class="ls-lc-loading">Loading roster data…</div>`;
+
+  let body = loadingBody;
+  if (data?.loaded) {
+    const mySection    = buildLcMyTeam(lg, data);
+    const waiverSection = buildLcWaiver(data);
+    body = mySection + (waiverSection ? `<div class="ls-lc-divider"></div>${waiverSection}` : '');
+  }
+
+  return `<div class="ls-league-card${data?.myRosterId ? ' my-league' : ''}">
+    <div class="ls-lc-header">
+      <span class="ls-lc-icon">🏆</span>
+      <span class="ls-lc-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>
+      <span class="ls-lc-meta">${meta}</span>
+      <button class="ls-lc-open" onclick="loadLeagueDetail(${JSON.stringify(lg).replace(/"/g,'&quot;')})">Open →</button>
+    </div>
+    ${body}
+  </div>`;
+}
+
+// ── "My Team" section within a league card ──
+function buildLcMyTeam(lg, data) {
+  const { rosters, users, projections, csvPlayers, myRosterId } = data;
+  if (!myRosterId) return '<div class="ls-lc-loading">Your team not found in this league.</div>';
+
+  const myRoster = rosters.find(r => r.roster_id === myRosterId);
+  if (!myRoster) return '<div class="ls-lc-loading">Roster data unavailable.</div>';
+
+  // Get team name
+  const myUser   = users.find(u => u.user_id === myRoster.owner_id);
+  const teamName = myUser?.metadata?.team_name || myUser?.display_name || 'My Team';
+
+  // Build per-player display objects using the per-league CSV + projections
+  // Temporarily swap globals, build, then restore (helper is stateful — keep it simple)
+  const prevCsv  = leagueCsvPlayers;
+  const prevProj = leagueProjections;
+  leagueCsvPlayers  = csvPlayers;
+  leagueProjections = projections;
+  const players = buildRosterPlayers(myRoster);
+  leagueCsvPlayers  = prevCsv;
+  leagueProjections = prevProj;
+
+  const ranked = players.filter(p => p.rank != null).sort((a, b) => a.rank - b.rank);
+  const top5   = ranked.slice(0, 5);
+  if (!top5.length && !csvPlayers.length) {
+    return `<div class="ls-lc-section"><div class="ls-lc-section-title">★ ${escHtml(teamName)}</div><div class="ls-lc-loading">Upload rankings CSV in the league detail view to see player analysis.</div></div>`;
+  }
+
+  // Tier counts for badges
+  const tc = { 1:0, 2:0, 3:0 };
+  players.forEach(p => { if (p.tier && p.tier <= 3) tc[p.tier]++; });
+  const tierHtml = [1,2,3].map(t => tc[t] ? `<span class="ls-tier-chip" style="background:${tierHsl(t)};color:#fff">T${t}×${tc[t]}</span>` : '').join('');
+
+  // Projected total (top 9)
+  const projTotal = ranked.slice(0, 9).reduce((s, p) => s + (p.projPts || 0), 0);
+
+  const posColor = { QB:'#818cf8', RB:'#34d399', WR:'#60a5fa', TE:'#f59e0b', K:'#94a3b8' };
+  const rows = (top5.length ? top5 : players.slice(0, 5)).map(p => {
+    const col = posColor[p.pos] || '#94a3b8';
+    return `<div class="ls-player-row">
+      ${p.rank != null ? `<span class="ls-p-rank">#${p.rank}</span>` : '<span class="ls-p-rank" style="color:#374151">—</span>'}
+      <span class="ls-p-name" title="${escHtml(displayName(p.name))}">${escHtml(displayName(p.name))}</span>
+      <span class="ls-p-pos" style="color:${col}">${p.pos}</span>
+      ${buildEnvBar(getImplied(p.team))}
+      <span class="ls-p-proj">${p.projPts != null ? p.projPts : ''}</span>
+    </div>`;
+  }).join('');
+
+  return `<div class="ls-lc-section">
+    <div class="ls-lc-section-title" style="display:flex;align-items:center;gap:6px">
+      <span>★ ${escHtml(teamName)}</span>
+      ${tierHtml}
+      ${projTotal > 0 ? `<span style="font-size:10px;color:#4b5563;margin-left:auto">proj ${projTotal.toFixed(1)}</span>` : ''}
+    </div>
+    ${rows}
+  </div>`;
+}
+
+// ── Waiver section within a league card ──
+function buildLcWaiver(data) {
+  const { rosters, projections, csvPlayers } = data;
+  if (!csvPlayers.length) return '';
+
+  const rosteredPids  = new Set();
+  const rosteredNorms = new Set();
+  rosters.forEach(r => (r.players || []).forEach(pid => {
+    rosteredPids.add(pid);
+    const norm = sleeperById[pid];
+    if (norm) { rosteredNorms.add(norm); const al = NAME_ALIASES[norm]; if (al) rosteredNorms.add(al); }
+  }));
+  function isRosteredW(csvName, sInfo) {
+    if (sInfo?.id && rosteredPids.has(sInfo.id)) return true;
+    const n = normName(csvName); if (rosteredNorms.has(n)) return true;
+    const al = NAME_ALIASES[n]; return al ? rosteredNorms.has(al) : false;
+  }
+
+  const flexPos = new Set(['RB','WR','TE','QB']);
+  const avail = csvPlayers.map(p => {
+    const norm  = normName(p.name);
+    const sInfo = sleeperByName[norm] || (NAME_ALIASES[norm] ? sleeperByName[NAME_ALIASES[norm]] : null);
+    if (isRosteredW(p.name, sInfo)) return null;
+    if (!flexPos.has(p.pos)) return null;
+    const pid = sInfo?.id;
+    return { name: p.name, pos: p.pos || '?', rank: p.ov, projPts: pid ? (projections[pid] ?? null) : null, team: sInfo?.team || '', implied: getImplied(sInfo?.team || '') };
+  }).filter(Boolean).slice(0, 4);
+
+  if (!avail.length) return '';
+
+  const posColor = { QB:'#818cf8', RB:'#34d399', WR:'#60a5fa', TE:'#f59e0b' };
+  const rows = avail.map(p => {
+    const col = posColor[p.pos] || '#94a3b8';
+    const dn  = displayName(p.name);
+    return `<div class="ls-player-row">
+      <span class="ls-p-rank">#${p.rank}</span>
+      <span class="ls-p-name" title="${escHtml(dn)}">${escHtml(dn)}</span>
+      <span class="ls-p-pos" style="color:${col}">${p.pos}</span>
+      ${buildEnvBar(p.implied)}
+      <span class="ls-p-proj">${p.projPts != null ? p.projPts : ''}</span>
+    </div>`;
+  }).join('');
+
+  return `<div class="ls-lc-section">
+    <div class="ls-lc-section-title">⚡ Top Waiver</div>
+    ${rows}
+  </div>`;
+}
+
+// ── Legacy per-team render helpers (kept for league-detail screen usage) ──
+function renderSummaryWaiver() {}  // now handled per-league in buildLcWaiver
+function renderSummaryTeams()  {}  // now handled per-league in buildLcMyTeam
 
 // Toast
 let _toastTimer = null;
