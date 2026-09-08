@@ -3917,8 +3917,8 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
   const hdr  = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span><span class="ls-lc-meta">${meta}</span><button class="ls-lc-open" onclick="openLeagueDetail('${lg.league_id}')">Open →</button></div>`;
   if (loading) return `<div class="ls-league-card" data-lid="${lg.league_id}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
 
-  const { myTeamHtml, worstFlexRank, worstQbRank } = buildWeeklyMyTeamSection(lg, data);
-  const waiverHtml = buildWeeklyWaiverSection(data, worstFlexRank, worstQbRank);
+  const { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank } = buildWeeklyMyTeamSection(lg, data);
+  const waiverHtml = buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank);
   const isMyLeague = data?.myRosterId != null;
   return `<div class="ls-league-card${isMyLeague ? ' my-league' : ''}" data-lid="${lg.league_id}">
     ${hdr}${myTeamHtml}
@@ -3928,9 +3928,10 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
 
 function buildWeeklyMyTeamSection(lg, data) {
   const { rosters, users, projections, myRosterId } = data;
-  if (!myRosterId) return { myTeamHtml: '<div class="ls-lc-loading">Your team not found.</div>', worstFlexRank: 0, worstQbRank: 0 };
+  const _empty = { myTeamHtml: '<div class="ls-lc-loading">Your team not found.</div>', worstByPos: {}, worstFlexOccupant: 0, worstQbRank: 0 };
+  if (!myRosterId) return _empty;
   const myRoster = rosters.find(r => r.roster_id === myRosterId);
-  if (!myRoster) return { myTeamHtml: '<div class="ls-lc-loading">Roster unavailable.</div>', worstFlexRank: 0, worstQbRank: 0 };
+  if (!myRoster) return { ..._empty, myTeamHtml: '<div class="ls-lc-loading">Roster unavailable.</div>' };
   const myUser   = users.find(u => u.user_id === myRoster.owner_id);
   const teamName = myUser?.metadata?.team_name || myUser?.display_name || 'My Team';
 
@@ -3956,8 +3957,16 @@ function buildWeeklyMyTeamSection(lg, data) {
   const bench    = slotted.filter(p => p.bench && p.pos !== 'K');
   const upgrades = getUpgradePids(slotted);
 
-  const worstFlexRank = starters.filter(p => ['RB','WR','TE'].includes(p.pos)).reduce((w, p) => Math.max(w, p.flexRank ?? 0), 0);
-  const worstQbRank   = starters.filter(p => p.pos === 'QB').reduce((w, p) => Math.max(w, p.qbRank ?? 0), 0);
+  // Per-position worst rank for players in their own positional slot (not FLEX)
+  const worstByPos = {};
+  ['RB','WR','TE'].forEach(pos => {
+    worstByPos[pos] = starters.filter(s => s.pos === pos && !FLEX_SLOTS.has(s.slot))
+                              .reduce((w, s) => Math.max(w, s.flexRank ?? 0), 0);
+  });
+  // Worst rank of whoever is actually sitting in a FLEX slot (any flex-eligible pos)
+  const worstFlexOccupant = starters.filter(s => FLEX_SLOTS.has(s.slot) && ['RB','WR','TE'].includes(s.pos))
+                                    .reduce((w, s) => Math.max(w, s.flexRank ?? 0), 0);
+  const worstQbRank = starters.filter(p => p.pos === 'QB').reduce((w, p) => Math.max(w, p.qbRank ?? 0), 0);
 
   const rankedCount = starters.filter(p => p.flexRank != null || p.qbRank != null).length;
   const avgRank = rankedCount
@@ -3985,10 +3994,10 @@ function buildWeeklyMyTeamSection(lg, data) {
     </div>` : ''}
   </div>`;
 
-  return { myTeamHtml, worstFlexRank, worstQbRank };
+  return { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank };
 }
 
-function buildWeeklyWaiverSection(data, worstFlexRank, worstQbRank) {
+function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank) {
   if (!weeklyHasQb && !weeklyHasFlex) return '';
   const { rosters, projections } = data;
 
@@ -4007,7 +4016,7 @@ function buildWeeklyWaiverSection(data, worstFlexRank, worstQbRank) {
 
   const qbRows   = availQbs.map(p  => weeklyPlayerRow(p, (p.qbRank   ?? 9999) < worstQbRank)).join('')
                    || '<div class="ls-lc-loading">No QBs available</div>';
-  const flexRows = availFlex.map(p => weeklyPlayerRow(p, (p.flexRank ?? 9999) < worstFlexRank)).join('')
+  const flexRows = availFlex.map(p => weeklyPlayerRow(p, (p.flexRank ?? 9999) < Math.max(worstByPos[p.pos] ?? 0, worstFlexOccupant))).join('')
                    || '<div class="ls-lc-loading">None available</div>';
 
   return `<div class="ls-lc-section"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
