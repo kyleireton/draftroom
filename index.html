@@ -986,7 +986,7 @@ body {
 <!-- ── LEAGUE DETAIL SCREEN ── -->
 <div id="league-detail-screen">
   <div class="ld-header">
-    <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
+    <button class="ld-back" onclick="leagueList.length ? openLeagueSummary() : showScreen('leagues')">← Leagues</button>
     <button class="ld-back" onclick="goToDraftFromLeague()" style="margin-left:8px">Draft Room →</button>
     <button class="ld-back" onclick="openLeagueSummary()" style="margin-left:8px">📊 Summary</button>
     <div>
@@ -2498,21 +2498,8 @@ async function fetchAndRenderLeagues(username) {
     loadEl.style.display = 'none';
     if (!leagueList.length) { emptyEl.style.display = ''; return; }
 
-    leagueList.forEach(lg => {
-      const scoring  = lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std';
-      const teams    = lg.total_rosters || '?';
-      const card     = document.createElement('div');
-      card.className = 'league-card';
-      card.innerHTML = `
-        <div class="league-card-icon">🏆</div>
-        <div class="league-card-info">
-          <div class="league-card-name">${escHtml(lg.name)}</div>
-          <div class="league-card-meta">${teams}-team · ${scoring} · ${lg.status || 'active'}</div>
-        </div>
-        <div class="league-card-arrow">›</div>`;
-      card.onclick = () => loadLeagueDetail(lg);
-      cardCon.appendChild(card);
-    });
+    // Go straight to summary — it's the default leagues view
+    openLeagueSummary();
   } catch(e) {
     loadEl.style.display = 'none';
     emptyEl.textContent  = 'Could not load leagues: ' + e.message;
@@ -3263,9 +3250,15 @@ async function ensureMySleeperUserId() {
 function openLeagueSummary() {
   if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
   const savedKey = localStorage.getItem('dr_odds_api_key');
-  if (savedKey) { const ki = document.getElementById('ls-odds-key'); if (ki && !ki.value) ki.value = savedKey; }
+  const ki = document.getElementById('ls-odds-key');
+  if (savedKey && ki && !ki.value) ki.value = savedKey;
   const statusEl = document.getElementById('ls-odds-status');
-  if (statusEl && oddsLastFetched) { statusEl.textContent = oddsStatusText(); statusEl.className = 'ls-odds-status fresh'; }
+  if (oddsLastFetched) {
+    if (statusEl) { statusEl.textContent = oddsStatusText(); statusEl.className = 'ls-odds-status fresh'; }
+  } else if (savedKey) {
+    // Auto-load odds using saved key — no manual click needed
+    fetchAndCacheOdds();
+  }
   const weekEl = document.getElementById('ls-week-label');
   if (weekEl) weekEl.textContent = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}`;
   showScreen('league-summary');
@@ -3278,8 +3271,11 @@ function renderLeagueSummary() {
   if (!list) return;
   if (!leagueList.length) { list.innerHTML = '<div class="ls-lc-loading">No leagues found. Connect your Sleeper account on the Leagues screen.</div>'; return; }
 
+  // Alphabetical sort
+  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+
   // Skeleton pass: render all league cards with loading state immediately
-  list.innerHTML = leagueList.map(lg => {
+  list.innerHTML = sorted.map(lg => {
     const cached = allLeaguesCache[lg.league_id];
     return buildLeagueCardHtml(lg, cached || null, true);
   }).join('');
@@ -3287,9 +3283,8 @@ function renderLeagueSummary() {
   // Async: load each league's data (skip if already cached)
   ensureMySleeperUserId().then(myUid => {
     ensureSleeperDb().then(() => {
-      leagueList.forEach((lg, i) => {
+      sorted.forEach((lg, i) => {
         if (allLeaguesCache[lg.league_id]?.loaded) {
-          // Already have data — just re-render its card
           const el = list.children[i];
           if (el) el.outerHTML = buildLeagueCardHtml(lg, allLeaguesCache[lg.league_id], false);
         } else {
@@ -3401,15 +3396,23 @@ function buildLcMyTeam(lg, data) {
   const myUser   = users.find(u => u.user_id === myRoster.owner_id);
   const teamName = myUser?.metadata?.team_name || myUser?.display_name || 'My Team';
 
-  // Build per-player display objects using the per-league CSV + projections
-  // Temporarily swap globals, build, then restore (helper is stateful — keep it simple)
-  const prevCsv  = leagueCsvPlayers;
-  const prevProj = leagueProjections;
-  leagueCsvPlayers  = csvPlayers;
-  leagueProjections = projections;
-  const players = buildRosterPlayers(myRoster);
-  leagueCsvPlayers  = prevCsv;
-  leagueProjections = prevProj;
+  // Build per-player display objects directly — no global state swap needed
+  const players = (myRoster.players || []).map(pid => {
+    const norm  = sleeperById[pid];
+    const sInfo = norm ? sleeperByName[norm] : null;
+    const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+    let rank = null, tier = null;
+    if (norm && csvPlayers.length) {
+      const csvP = csvPlayers.find(p => {
+        const pn = normName(p.name);
+        return pn === norm || NAME_ALIASES[pn] === norm || pn === NAME_ALIASES[norm];
+      });
+      if (csvP) { rank = csvP.ov; tier = csvP.tier; }
+    }
+    if (rank == null && sInfo?.adpRank != null) rank = sInfo.adpRank;
+    return { pid, name, pos: sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?',
+             rank, tier: tier ?? null, projPts: projections[pid] ?? null, team: sInfo?.team || '' };
+  });
 
   const ranked = players.filter(p => p.rank != null).sort((a, b) => a.rank - b.rank);
   const top5   = ranked.slice(0, 5);
@@ -3425,17 +3428,7 @@ function buildLcMyTeam(lg, data) {
   // Projected total (top 9)
   const projTotal = ranked.slice(0, 9).reduce((s, p) => s + (p.projPts || 0), 0);
 
-  const posColor = { QB:'#818cf8', RB:'#34d399', WR:'#60a5fa', TE:'#f59e0b', K:'#94a3b8' };
-  const rows = (top5.length ? top5 : players.slice(0, 5)).map(p => {
-    const col = posColor[p.pos] || '#94a3b8';
-    return `<div class="ls-player-row">
-      ${p.rank != null ? `<span class="ls-p-rank">#${p.rank}</span>` : '<span class="ls-p-rank" style="color:#374151">—</span>'}
-      <span class="ls-p-name" title="${escHtml(displayName(p.name))}">${escHtml(displayName(p.name))}</span>
-      <span class="ls-p-pos" style="color:${col}">${p.pos}</span>
-      ${buildEnvBar(getImplied(p.team))}
-      <span class="ls-p-proj">${p.projPts != null ? p.projPts : ''}</span>
-    </div>`;
-  }).join('');
+  const rows = (top5.length ? top5 : players.slice(0, 5)).map(playerRow).join('');
 
   return `<div class="ls-lc-section">
     <div class="ls-lc-section-title" style="display:flex;align-items:center;gap:6px">
@@ -3444,6 +3437,33 @@ function buildLcMyTeam(lg, data) {
       ${projTotal > 0 ? `<span style="font-size:10px;color:#4b5563;margin-left:auto">proj ${projTotal.toFixed(1)}</span>` : ''}
     </div>
     ${rows}
+  </div>`;
+}
+
+// ── Positional row style helper ──
+const POS_STYLE = {
+  QB: { border:'#818cf8', bg:'rgba(129,140,248,0.08)' },
+  RB: { border:'#34d399', bg:'rgba(52,211,153,0.08)'  },
+  WR: { border:'#60a5fa', bg:'rgba(96,165,250,0.08)'  },
+  TE: { border:'#f59e0b', bg:'rgba(245,158,11,0.08)'  },
+  K:  { border:'#94a3b8', bg:'rgba(148,163,184,0.05)' },
+};
+function posRowStyle(pos) {
+  const s = POS_STYLE[pos];
+  return s ? `border-left:3px solid ${s.border};background:${s.bg};padding-left:6px;` : '';
+}
+function posTextColor(pos) {
+  return (POS_STYLE[pos]?.border) || '#94a3b8';
+}
+
+function playerRow(p) {
+  const dn = displayName(p.name);
+  return `<div class="ls-player-row" style="${posRowStyle(p.pos)}">
+    ${p.rank != null ? `<span class="ls-p-rank">#${p.rank}</span>` : '<span class="ls-p-rank" style="color:#374151">—</span>'}
+    <span class="ls-p-name" title="${escHtml(dn)}">${escHtml(dn)}</span>
+    <span class="ls-p-pos" style="color:${posTextColor(p.pos)}">${p.pos}</span>
+    ${buildEnvBar(getImplied(p.team))}
+    <span class="ls-p-proj">${p.projPts != null ? p.projPts : ''}</span>
   </div>`;
 }
 
@@ -3465,34 +3485,31 @@ function buildLcWaiver(data) {
     const al = NAME_ALIASES[n]; return al ? rosteredNorms.has(al) : false;
   }
 
-  const flexPos = new Set(['RB','WR','TE','QB']);
   const avail = csvPlayers.map(p => {
+    if (!['QB','RB','WR','TE'].includes(p.pos)) return null;
     const norm  = normName(p.name);
     const sInfo = sleeperByName[norm] || (NAME_ALIASES[norm] ? sleeperByName[NAME_ALIASES[norm]] : null);
     if (isRosteredW(p.name, sInfo)) return null;
-    if (!flexPos.has(p.pos)) return null;
     const pid = sInfo?.id;
-    return { name: p.name, pos: p.pos || '?', rank: p.ov, projPts: pid ? (projections[pid] ?? null) : null, team: sInfo?.team || '', implied: getImplied(sInfo?.team || '') };
-  }).filter(Boolean).slice(0, 4);
+    return { name: p.name, pos: p.pos || '?', rank: p.ov, projPts: pid ? (projections[pid] ?? null) : null, team: sInfo?.team || '' };
+  }).filter(Boolean);
 
-  if (!avail.length) return '';
+  const topQB   = avail.filter(p => p.pos === 'QB').slice(0, 2);
+  const topFlex = avail.filter(p => p.pos !== 'QB').slice(0, 3);
 
-  const posColor = { QB:'#818cf8', RB:'#34d399', WR:'#60a5fa', TE:'#f59e0b' };
-  const rows = avail.map(p => {
-    const col = posColor[p.pos] || '#94a3b8';
-    const dn  = displayName(p.name);
-    return `<div class="ls-player-row">
-      <span class="ls-p-rank">#${p.rank}</span>
-      <span class="ls-p-name" title="${escHtml(dn)}">${escHtml(dn)}</span>
-      <span class="ls-p-pos" style="color:${col}">${p.pos}</span>
-      ${buildEnvBar(p.implied)}
-      <span class="ls-p-proj">${p.projPts != null ? p.projPts : ''}</span>
-    </div>`;
-  }).join('');
+  if (!topQB.length && !topFlex.length) return '';
 
   return `<div class="ls-lc-section">
-    <div class="ls-lc-section-title">⚡ Top Waiver</div>
-    ${rows}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div>
+        <div class="ls-lc-section-title">⚡ Top QB</div>
+        ${topQB.length ? topQB.map(playerRow).join('') : '<div class="ls-lc-loading">None available</div>'}
+      </div>
+      <div>
+        <div class="ls-lc-section-title">⚡ Top Flex</div>
+        ${topFlex.length ? topFlex.map(playerRow).join('') : '<div class="ls-lc-loading">None available</div>'}
+      </div>
+    </div>
   </div>`;
 }
 
