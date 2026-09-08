@@ -1083,7 +1083,8 @@ body {
 <div id="weekly-summary-screen" style="display:none">
   <div class="ls-header">
     <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
-    <input type="file" id="ws-all-file" accept=".csv,text/csv,text/plain" style="display:none" onchange="onWeeklyAllUpload(event)">
+    <input type="file" id="ws-all-file"    accept=".csv,text/csv,text/plain" style="display:none" onchange="onWeeklyAllUpload(event)">
+    <input type="file" id="ws-season-file" accept=".csv,text/csv,text/plain" style="display:none" onchange="onWeeklySeasonUpload(event)">
     <div style="flex:1;min-width:0">
       <div class="ls-title" id="ws-title">Week 1 · Start/Sit</div>
       <div class="ls-meta"  id="ws-meta"></div>
@@ -1108,9 +1109,15 @@ body {
       </div>
     </div>
   </div>
-  <div class="ls-upload-bar">
-    <button class="ls-upload-btn" onclick="document.getElementById('ws-all-file').click()">↑ Upload Rankings</button>
-    <span class="ls-upload-status" id="ws-upload-status">Upload weekly rankings CSV to see recommendations</span>
+  <div class="ls-upload-bar" style="flex-direction:column;align-items:flex-start;gap:6px;padding-top:10px;padding-bottom:10px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="ls-upload-btn" onclick="document.getElementById('ws-all-file').click()">↑ Upload weekly ranks ("all.csv")</button>
+      <span class="ls-upload-status" id="ws-upload-status">Upload weekly rankings CSV to see recommendations</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="ls-upload-btn" style="background:#374151" onclick="document.getElementById('ws-season-file').click()">↑ Upload season-long rankings (eg, "half-ppr.csv")</button>
+      <span class="ls-upload-status" id="ws-season-status">No season rankings loaded</span>
+    </div>
   </div>
   <div class="ls-body">
     <div id="ws-leagues-list"></div>
@@ -3750,6 +3757,7 @@ let weeklyKMap       = {};  // normName → {rank,name,team,projection,opp}
 let weeklyFlexMap    = {};  // normName → {rank,pos,name,team,opp,total,matchup}
 let weeklyNflWeek    = null;
 let weeklyHasRankings = false;
+let weeklySeasonPlayers = []; // season-long rankings from half-ppr.csv / full-season upload
 
 // Per-league collapse state — persisted across sessions
 let collapsedLeagues = new Set(
@@ -3788,6 +3796,11 @@ function toggleLeagueCollapse(leagueId) {
     weeklyKMap    = k    || {};
     weeklyFlexMap = flex || {};
     weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
+  } catch(_) {}
+  // Restore season-long rankings
+  try {
+    const sp = localStorage.getItem('dr_season_players');
+    if (sp) weeklySeasonPlayers = JSON.parse(sp) || [];
   } catch(_) {}
 })();
 
@@ -3904,6 +3917,37 @@ function onWeeklyAllUpload(evt) {
     if (weeklyHasRankings) renderWeeklySummary();
   });
   reader.readAsText(file);
+}
+
+function onWeeklySeasonUpload(evt) {
+  const file = evt.target.files?.[0]; evt.target.value = ''; if (!file) return;
+  const statusEl = document.getElementById('ws-season-status');
+  if (statusEl) { statusEl.textContent = 'Parsing…'; statusEl.className = 'ls-upload-status'; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    parseCSVText(e.target.result, players => {
+      if (!players.length) {
+        if (statusEl) statusEl.textContent = 'No players found in file';
+        return;
+      }
+      weeklySeasonPlayers = players;
+      try { localStorage.setItem('dr_season_players', JSON.stringify(players.slice(0, 500))); } catch(_) {}
+      updateWeeklySeasonStatus();
+      if (weeklyHasRankings) renderWeeklySummary();
+    }, true);
+  };
+  reader.readAsText(file);
+}
+
+function updateWeeklySeasonStatus() {
+  const el = document.getElementById('ws-season-status'); if (!el) return;
+  if (weeklySeasonPlayers.length) {
+    el.textContent = `✓ ${weeklySeasonPlayers.length} players (season)`;
+    el.className   = 'ls-upload-status ok';
+  } else {
+    el.textContent = 'No season rankings loaded';
+    el.className   = 'ls-upload-status';
+  }
 }
 
 function updateWeeklyUploadStatus() {
@@ -4292,6 +4336,7 @@ async function openWeeklySummary() {
   if (metaEl)  metaEl.textContent  = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}`;
   if (tabEl)   { tabEl.textContent = `Wk ${weeklyNflWeek} Start/Sit`; tabEl.classList.add('active'); }
   updateWeeklyUploadStatus();
+  updateWeeklySeasonStatus();
   renderWeeklySummary();
 }
 
