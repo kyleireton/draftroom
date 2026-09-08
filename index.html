@@ -3233,10 +3233,16 @@ async function fetchAndCacheOdds() {
   }
 }
 
-function getImplied(teamAbbr) { return impliedTotals[teamAbbr] ?? null; }
-
 // ESPN abbreviation → Sleeper abbreviation (only exceptions listed; rest match)
-const ESPN_TO_SLEEPER = { 'LAR':'LA', 'WSH':'WAS' };
+const ESPN_TO_SLEEPER  = { 'LAR':'LA', 'WSH':'WAS' };
+// Reverse map: Sleeper abbr → ESPN abbr (for fallback lookup in getImplied)
+const SLEEPER_TO_ESPN  = { 'LA':'LAR', 'WAS':'WSH' };
+
+function getImplied(teamAbbr) {
+  if (!teamAbbr) return null;
+  // Try Sleeper abbr first, then ESPN abbr as fallback (handles mis-stored cache)
+  return impliedTotals[teamAbbr] ?? impliedTotals[SLEEPER_TO_ESPN[teamAbbr]] ?? null;
+}
 
 async function fetchEspnOdds(force = false) {
   const statusEl = document.getElementById('ls-odds-status');
@@ -3262,8 +3268,11 @@ async function fetchEspnOdds(force = false) {
       const toSlp    = abbr => ESPN_TO_SLEEPER[abbr] || abbr;
       const homeAbbr = toSlp(homeComp.team.abbreviation);
       const awayAbbr = toSlp(awayComp.team.abbreviation);
-      // homeTeamOdds.spread is negative when home team is favored
-      const homeSpread = odds.homeTeamOdds?.spread ?? (-(odds.spread ?? 0));
+      // Use homeTeamOdds.favorite bool to determine spread sign reliably
+      // (ESPN stores homeTeamOdds.spread as a positive magnitude regardless of direction)
+      const homeIsFav  = odds.homeTeamOdds?.favorite === true;
+      const spreadMag  = Math.abs(odds.homeTeamOdds?.spread ?? odds.spread ?? 0);
+      const homeSpread = homeIsFav ? -spreadMag : spreadMag; // negative = home is favored
       totals[homeAbbr] = Math.round(((total - homeSpread) / 2) * 10) / 10;
       totals[awayAbbr] = Math.round(((total + homeSpread) / 2) * 10) / 10;
     });
@@ -3294,8 +3303,8 @@ function envColor(v) {
 
 function buildEnvBar(implied) {
   if (!implied) return `<div class="env-bar-wrap" title="Vegas projected team total"><div class="env-bar-bg"><div class="env-bar-fill" style="width:0"></div></div><span class="env-implied" style="color:#374151">—</span></div>`;
-  // Scale bar to realistic NFL range: 16 pts = empty, 29+ pts = full
-  const pct   = Math.max(0, Math.min(100, Math.round(((implied - 16) / 13) * 100)));
+  // Scale bar: 16 pts = small red sliver (8%), 29+ pts = full. Min 8% so bar is never invisible.
+  const pct   = Math.max(8, Math.min(100, Math.round(((implied - 16) / 13) * 100)));
   const color = envColor(implied);
   return `<div class="env-bar-wrap" title="Vegas projected team total: ${implied} pts"><div class="env-bar-bg"><div class="env-bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="env-implied" style="color:${color}">${implied}<span style="font-size:8px;opacity:0.7"> pts</span></span></div>`;
 }
