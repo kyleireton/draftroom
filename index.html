@@ -3839,35 +3839,55 @@ function assignWeeklySlots(players, rosterPositions) {
   return starters;
 }
 
-// Return set of PIDs for bench players that rank better than a current starter
+// Return set of PIDs for bench players that rank better than a starter they can actually replace.
+// A bench player only gets flagged if there's a worse-ranked starter occupying a slot they're eligible for.
+const FLEX_SLOTS = new Set(['FLEX','SUPER_FLEX','REC_FLEX','WRRB_FLEX']);
 function getUpgradePids(slotted) {
   const starters = slotted.filter(p => !p.bench);
   const upgrades = new Set();
-  const worstFlex = starters.filter(p => ['RB','WR','TE'].includes(p.pos)).reduce((w, p) => Math.max(w, p.flexRank ?? 0), 0);
-  const worstQb   = starters.filter(p => p.pos === 'QB').reduce((w, p) => Math.max(w, p.qbRank ?? 0), 0);
 
   slotted.filter(p => p.bench).forEach(bp => {
-    if (bp.pos === 'QB' && (bp.qbRank ?? 9999) < worstQb) { upgrades.add(bp.pid); return; }
-    if (!['RB','WR','TE'].includes(bp.pos)) return;
-    const worstPos = starters.filter(s => s.pos === bp.pos).reduce((w, s) => Math.max(w, s.flexRank ?? 0), 0);
-    if ((bp.flexRank ?? 9999) < worstPos)  { upgrades.add(bp.pid); return; }
-    if ((bp.flexRank ?? 9999) < worstFlex) { upgrades.add(bp.pid); }
+    if (bp.pos === 'QB') {
+      // Can replace a QB starter (in QB or SF slot) ranked worse
+      if (bp.qbRank == null) return;
+      const canReplace = starters.some(s =>
+        s.pos === 'QB' && (s.qbRank ?? 0) > (bp.qbRank ?? 9999)
+      );
+      if (canReplace) upgrades.add(bp.pid);
+      return;
+    }
+    if (!['RB','WR','TE'].includes(bp.pos) || bp.flexRank == null) return;
+    // Can replace a same-position starter in a positional slot (RB/WR/TE)
+    const posReplace = starters.some(s =>
+      s.pos === bp.pos && !FLEX_SLOTS.has(s.slot) && (s.flexRank ?? 0) > (bp.flexRank ?? 9999)
+    );
+    if (posReplace) { upgrades.add(bp.pid); return; }
+    // Can replace the occupant of a flex slot if bench player ranks better than that specific occupant
+    const flexReplace = starters.some(s =>
+      FLEX_SLOTS.has(s.slot) &&
+      ['RB','WR','TE'].includes(s.pos) &&
+      (s.flexRank ?? 0) > (bp.flexRank ?? 9999)
+    );
+    if (flexReplace) upgrades.add(bp.pid);
   });
   return upgrades;
 }
 
-// Build rank chip: QB → tier chip; flex → rank # colored by matchup
+/// Build rank chip: colored by position. QB → tier chip (only if ranked); flex → rank # with pos color.
+// Matchup quality is visible from the ENV bar color; chip = quick pos + rank ID.
 function buildWeeklyRankChip(p) {
+  const posBg = POS_CHIP_COLOR[p.pos] || '#374151';
   if (p.pos === 'QB') {
+    // Only show tier chip if this QB is actually in the weekly rankings
+    if (p.qbRank == null) return `<span style="min-width:32px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
     const tier = p.qbTier ?? 5;
-    const bg = ['','#6d28d9','#4338ca','#1d4ed8','#0369a1','#374151','#1f2937'][Math.min(tier,6)] || '#374151';
-    return `<span style="font-size:10px;font-weight:800;color:#fff;background:${bg};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0" title="QB Tier ${tier}">T${tier}</span>`;
+    const tip  = `QB Tier ${tier} · Rank #${p.qbRank}`;
+    return `<span style="font-size:10px;font-weight:800;color:#fff;background:${posBg};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0" title="${tip}">T${tier}</span>`;
   }
   const rank = p.flexRank;
   if (rank == null) return `<span style="min-width:32px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
-  const bg  = matchupColor(p.matchup);
-  const tip = p.matchup != null ? `Flex #${rank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `Flex #${rank}`;
-  return `<span style="font-size:10px;font-weight:800;color:#fff;background:${bg};opacity:0.92;border-radius:4px;padding:1px 5px;min-width:30px;text-align:center;flex-shrink:0" title="${tip}">#${rank}</span>`;
+  const tip = p.matchup != null ? `${p.pos} #${rank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `${p.pos} #${rank}`;
+  return `<span style="font-size:10px;font-weight:800;color:#fff;background:${posBg};border-radius:4px;padding:1px 5px;min-width:30px;text-align:center;flex-shrink:0" title="${tip}">#${rank}</span>`;
 }
 
 // Weekly player row
