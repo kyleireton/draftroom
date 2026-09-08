@@ -931,13 +931,18 @@ body {
 }
 .ls-lc-loading { font-size: 11px; color: #374151; padding: 6px 0; font-style: italic; }
 .ls-lc-divider { height: 1px; background: #2d3748; margin: 8px 0; }
+.ls-upload-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 20px; background: #111827;
+  border-bottom: 1px solid #1e2530;
+}
 .ls-upload-btn {
   background: #4f7ef8; border: none; color: #fff;
-  font-size: 12px; font-weight: 700; padding: 6px 12px;
+  font-size: 12px; font-weight: 700; padding: 6px 14px;
   border-radius: 8px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
 }
 .ls-upload-btn:hover { background: #3b6de8; }
-.ls-upload-status { font-size: 11px; color: #4b5563; white-space: nowrap; flex-shrink: 0; }
+.ls-upload-status { font-size: 11px; color: #4b5563; }
 .ls-upload-status.ok { color: #22c55e; }
 </style>
 </head>
@@ -1034,8 +1039,6 @@ body {
   <div class="ls-header">
     <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
     <input type="file" id="ls-rankings-file" accept=".csv" style="display:none" onchange="onSummaryRankingsUpload(event)">
-    <button class="ls-upload-btn" onclick="document.getElementById('ls-rankings-file').click()">↑ Upload Rankings</button>
-    <span class="ls-upload-status" id="ls-upload-status"></span>
     <div style="flex:1;min-width:0">
       <div class="ls-title">All Leagues</div>
       <div class="ls-meta" id="ls-week-label"></div>
@@ -1044,6 +1047,10 @@ body {
       <button class="ls-odds-btn" onclick="fetchEspnOdds(true)">🔄 Odds</button>
       <span class="ls-odds-status" id="ls-odds-status"></span>
     </div>
+  </div>
+  <div class="ls-upload-bar">
+    <button class="ls-upload-btn" onclick="document.getElementById('ls-rankings-file').click()">↑ Upload Rankings CSV</button>
+    <span class="ls-upload-status" id="ls-upload-status">Apply one CSV to all leagues at once</span>
   </div>
   <div class="ls-body">
     <div id="ls-leagues-list"></div>
@@ -3547,6 +3554,16 @@ function buildLcMyTeam(lg, data) {
   </div>`;
 }
 
+// ── Deep position colors for tier chips (saturated for legibility on dark bg) ──
+const POS_CHIP_COLOR = {
+  QB: '#6d28d9', // deep violet
+  RB: '#166534', // deep green
+  WR: '#1e40af', // deep blue
+  TE: '#92400e', // deep amber
+  K:  '#374151', // dark gray
+};
+function posChipColor(pos) { return POS_CHIP_COLOR[pos] || '#374151'; }
+
 // ── Positional row style helper ──
 const POS_STYLE = {
   QB: { border:'#818cf8', bg:'rgba(129,140,248,0.08)' },
@@ -3568,7 +3585,7 @@ function playerRow(p) {
   // Left badge: colored tier chip if tiered, else rank in bright text, else dot
   let badge;
   if (p.tier != null) {
-    badge = `<span style="font-size:10px;font-weight:800;color:#fff;background:${posTextColor(p.pos)};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0">T${p.tier}</span>`;
+    badge = `<span style="font-size:10px;font-weight:800;color:#fff;background:${posChipColor(p.pos)};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0">T${p.tier}</span>`;
   } else if (p.rank != null) {
     badge = `<span class="ls-p-rank" style="color:#cbd5e1;font-weight:700">#${p.rank}</span>`;
   } else {
