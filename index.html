@@ -1043,14 +1043,12 @@ body {
       <div class="ls-title">All Leagues</div>
       <div class="ls-meta" id="ls-week-label"></div>
     </div>
-    <div class="ls-odds-row">
-      <button class="ls-odds-btn" onclick="fetchEspnOdds(true)">🔄 Odds</button>
-      <span class="ls-odds-status" id="ls-odds-status"></span>
-    </div>
   </div>
   <div class="ls-upload-bar">
     <button class="ls-upload-btn" onclick="document.getElementById('ls-rankings-file').click()">↑ Upload Rankings CSV</button>
-    <span class="ls-upload-status" id="ls-upload-status">Apply one CSV to all leagues at once</span>
+    <button class="ls-odds-btn" onclick="fetchEspnOdds(true)" style="margin-left:4px">🔄 Refresh Odds</button>
+    <span class="ls-odds-status" id="ls-odds-status"></span>
+    <span class="ls-upload-status" id="ls-upload-status"></span>
   </div>
   <div class="ls-body">
     <div id="ls-leagues-list"></div>
