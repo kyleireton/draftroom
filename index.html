@@ -3277,6 +3277,7 @@ async function fetchEspnOdds(force = false) {
     impliedTotals   = totals;
     oddsLastFetched = Date.now();
     localStorage.setItem('dr_implied_totals', JSON.stringify({ ts: oddsLastFetched, data: totals }));
+    console.log('[DraftRoom] ESPN implied totals:', JSON.stringify(totals));
     const gameCount = Math.round(Object.keys(totals).length / 2);
     if (statusEl) {
       statusEl.textContent = gameCount > 0 ? `✓ ${gameCount} games` : 'No odds yet (preseason)';
