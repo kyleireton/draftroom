@@ -1076,8 +1076,7 @@ body {
 <div id="weekly-summary-screen" style="display:none">
   <div class="ls-header">
     <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
-    <input type="file" id="ws-qb-file"   accept=".csv" style="display:none" onchange="onWeeklyQbUpload(event)">
-    <input type="file" id="ws-flex-file" accept=".csv" style="display:none" onchange="onWeeklyFlexUpload(event)">
+    <input type="file" id="ws-all-file" accept=".csv" style="display:none" onchange="onWeeklyAllUpload(event)">
     <div style="flex:1;min-width:0">
       <div class="ls-title" id="ws-title">Week 1 · Start/Sit</div>
       <div class="ls-meta"  id="ws-meta"></div>
@@ -1093,7 +1092,8 @@ body {
           <b>How rankings work</b>
           <hr>
           <b>QB chip</b> — weekly tier (T1 = elite, T6 = streaming). Color: purple.<br>
-          <b>Flex chip</b> — overall flex rank across all RB/WR/TE (#1 = best). Color by position: <span style="color:#166534">■</span> RB <span style="color:#1e40af">■</span> WR <span style="color:#92400e">■</span> TE.<br>
+          <b>RB/WR/TE chip</b> — positional tier (T1 = best at position). Hover shows flex rank. Color by position: <span style="color:#166534">■</span> RB <span style="color:#1e40af">■</span> WR <span style="color:#92400e">■</span> TE.<br>
+          <b>DEF chip</b> — weekly tier (T1 = best matchup). <b>K chip</b> — rank (#1 = best).<br>
           <hr>
           <b>Slot logic</b>: positional slots (RB, WR, TE) are filled first by the best available at that position, then FLEX slots by overall flex rank among the remainder.<br>
           <b>⬆ START</b> badge = bench/waiver player ranked better than a replaceable starter in a matching slot.
@@ -1102,9 +1102,8 @@ body {
     </div>
   </div>
   <div class="ls-upload-bar">
-    <button class="ls-upload-btn" onclick="document.getElementById('ws-qb-file').click()">↑ QB Rankings</button>
-    <button class="ls-upload-btn" style="background:#166534" onclick="document.getElementById('ws-flex-file').click()">↑ Flex Rankings</button>
-    <span class="ls-upload-status" id="ws-upload-status">Upload QB and Flex CSV to see weekly recommendations</span>
+    <button class="ls-upload-btn" onclick="document.getElementById('ws-all-file').click()">↑ Upload Rankings</button>
+    <span class="ls-upload-status" id="ws-upload-status">Upload weekly rankings CSV to see recommendations</span>
   </div>
   <div class="ls-body">
     <div id="ws-leagues-list"></div>
@@ -3624,11 +3623,12 @@ function buildLcMyTeam(lg, data) {
 
 // ── Deep position colors for tier chips (saturated for legibility on dark bg) ──
 const POS_CHIP_COLOR = {
-  QB: '#6d28d9', // deep violet
-  RB: '#166534', // deep green
-  WR: '#1e40af', // deep blue
-  TE: '#92400e', // deep amber
-  K:  '#374151', // dark gray
+  QB:  '#6d28d9', // deep violet
+  RB:  '#166534', // deep green
+  WR:  '#1e40af', // deep blue
+  TE:  '#92400e', // deep amber
+  K:   '#374151', // dark gray
+  DEF: '#1e3a5f', // deep navy
 };
 function posChipColor(pos) { return POS_CHIP_COLOR[pos] || '#374151'; }
 
@@ -3725,27 +3725,35 @@ function renderSummaryTeams()  {}  // now handled per-league in buildLcMyTeam
 // ── WEEKLY START/SIT ────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════
 
-let weeklyQbMap   = {};    // normName → {rank,tier,team,opp,total,matchup}
-let weeklyFlexMap = {};    // normName → {rank,pos,team,opp,total,matchup}
-let weeklyNflWeek = null;  // current NFL week number
-let weeklyHasQb   = false;
-let weeklyHasFlex = false;
+let weeklyQbMap      = {};  // normName → {rank,tier,name,team,opp,total,matchup}
+let weeklyRbMap      = {};  // normName → {rank,tier,name,team,opp,total,matchup}
+let weeklyWrMap      = {};  // normName → {rank,tier,name,team,opp,total,matchup}
+let weeklyTeMap      = {};  // normName → {rank,tier,name,team,opp,total,matchup}
+let weeklyDefMap     = {};  // teamAbbr → {rank,tier,name,opp,spread}
+let weeklyKMap       = {};  // normName → {rank,name,team,projection,opp}
+let weeklyFlexMap    = {};  // normName → {rank,pos,name,team,opp,total,matchup}
+let weeklyNflWeek    = null;
+let weeklyHasRankings = false;
 
 // Persist/restore from localStorage
 (function loadWeeklyCached() {
   try {
     const raw = localStorage.getItem('dr_weekly_rankings');
     if (!raw) return;
-    const { qb, flex } = JSON.parse(raw);
+    const { qb, rb, wr, te, def, k, flex } = JSON.parse(raw);
     weeklyQbMap   = qb   || {};
+    weeklyRbMap   = rb   || {};
+    weeklyWrMap   = wr   || {};
+    weeklyTeMap   = te   || {};
+    weeklyDefMap  = def  || {};
+    weeklyKMap    = k    || {};
     weeklyFlexMap = flex || {};
-    weeklyHasQb   = Object.keys(weeklyQbMap).length   > 0;
-    weeklyHasFlex = Object.keys(weeklyFlexMap).length > 0;
+    weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
   } catch(_) {}
 })();
 
 function saveWeeklyCached() {
-  try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ qb: weeklyQbMap, flex: weeklyFlexMap })); } catch(_) {}
+  try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap, def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap })); } catch(_) {}
 }
 
 // Matchup scale: 1 = best matchup (easiest), 32 = worst (hardest)
@@ -3773,67 +3781,106 @@ function lookupWeekly(name, norm, map) {
       || null;
 }
 
-// Parse QB CSV: Rank, Quarterback, Team, Opponent, Total, Matchup, Tier
-function parseWeeklyQbCsv(text, callback) {
+// NFL team full name → Sleeper abbreviation (for DEF lookup)
+const NFL_TEAM_FULL_TO_ABBR = {
+  'Arizona Cardinals':'ARI','Atlanta Falcons':'ATL','Baltimore Ravens':'BAL',
+  'Buffalo Bills':'BUF','Carolina Panthers':'CAR','Chicago Bears':'CHI',
+  'Cincinnati Bengals':'CIN','Cleveland Browns':'CLE','Dallas Cowboys':'DAL',
+  'Denver Broncos':'DEN','Detroit Lions':'DET','Green Bay Packers':'GB',
+  'Houston Texans':'HOU','Indianapolis Colts':'IND','Jacksonville Jaguars':'JAC',
+  'Kansas City Chiefs':'KC','Las Vegas Raiders':'LV','Los Angeles Chargers':'LAC',
+  'Los Angeles Rams':'LAR','Miami Dolphins':'MIA','Minnesota Vikings':'MIN',
+  'New England Patriots':'NE','New Orleans Saints':'NO','New York Giants':'NYG',
+  'New York Jets':'NYJ','Philadelphia Eagles':'PHI','Pittsburgh Steelers':'PIT',
+  'San Francisco 49ers':'SF','Seattle Seahawks':'SEA','Tampa Bay Buccaneers':'TB',
+  'Tennessee Titans':'TEN','Washington Commanders':'WAS'
+};
+
+// Parse all.csv: wide format with QB/RB/WR/TE/DEF/FLEX/K column groups in each row
+function parseWeeklyAllCsv(text, callback) {
   Papa.parse(text, { header: true, skipEmptyLines: true, complete: result => {
-    const map = {};
+    const qbMap = {}, rbMap = {}, wrMap = {}, teMap = {}, defMap = {}, kMap = {}, flexMap = {};
+    const g = (r, n) => (r[n] || '').trim();
     result.data.forEach(r => {
-      const g = (...ns) => { const ks = Object.keys(r); for (const n of ns) { const k = ks.find(k => k.trim().toLowerCase() === n.toLowerCase()); if (k !== undefined) return (r[k]||'').trim(); } return ''; };
-      const name = g('Quarterback','QB','Player','Name'); if (!name) return;
-      const key = normName(name); if (!key) return;
-      map[key] = { rank: parseInt(g('Rank','rank'))||99, name, team: g('Team','team').toUpperCase(), opp: g('Opponent','Opp','opp').toUpperCase(), total: parseFloat(g('Total','total'))||null, matchup: parseInt(g('Matchup','matchup'))||null, tier: parseInt(g('Tier','tier'))||5 };
+      const qbName = g(r,'QB Player'); if (qbName) {
+        const key = normName(qbName); if (key)
+          qbMap[key] = { rank: parseInt(g(r,'QB Rank'))||99, tier: parseInt(g(r,'QB Tier'))||5, name: qbName,
+            team: g(r,'QB Team').toUpperCase(), opp: g(r,'QB Opponent').toUpperCase(),
+            total: parseFloat(g(r,'QB Total'))||null, matchup: parseInt(g(r,'QB Matchup'))||null };
+      }
+      const rbName = g(r,'RB Player'); if (rbName) {
+        const key = normName(rbName); if (key)
+          rbMap[key] = { rank: parseInt(g(r,'RB Rank'))||999, tier: parseInt(g(r,'RB Tier'))||9, name: rbName,
+            team: g(r,'RB Team').toUpperCase(), opp: g(r,'RB Opponent').toUpperCase(),
+            total: parseFloat(g(r,'RB Total'))||null, matchup: parseInt(g(r,'RB Matchup'))||null };
+      }
+      const wrName = g(r,'WR Player'); if (wrName) {
+        const key = normName(wrName); if (key)
+          wrMap[key] = { rank: parseInt(g(r,'WR Rank'))||999, tier: parseInt(g(r,'WR Tier'))||9, name: wrName,
+            team: g(r,'WR Team').toUpperCase(), opp: g(r,'WR Opponent').toUpperCase(),
+            total: parseFloat(g(r,'WR Total'))||null, matchup: parseInt(g(r,'WR Matchup'))||null };
+      }
+      const teName = g(r,'TE Player'); if (teName) {
+        const key = normName(teName); if (key)
+          teMap[key] = { rank: parseInt(g(r,'TE Rank'))||999, tier: parseInt(g(r,'TE Tier'))||9, name: teName,
+            team: g(r,'TE Team').toUpperCase(), opp: g(r,'TE Opponent').toUpperCase(),
+            total: parseFloat(g(r,'TE Total'))||null, matchup: parseInt(g(r,'TE Matchup'))||null };
+      }
+      const defTeam = g(r,'DEF Team'); if (defTeam) {
+        const abbr = NFL_TEAM_FULL_TO_ABBR[defTeam] || defTeam.toUpperCase();
+        defMap[abbr] = { rank: parseInt(g(r,'DEF Rank'))||32, tier: parseInt(g(r,'DEF Tier'))||5,
+          name: defTeam, opp: g(r,'DEF Opponent').toUpperCase(), spread: parseFloat(g(r,'DEF Spread'))||null };
+      }
+      const flexName = g(r,'FLEX Player'); if (flexName) {
+        const key = normName(flexName); if (key)
+          flexMap[key] = { rank: parseInt(g(r,'FLEX Rank'))||999, pos: g(r,'FLEX Pos').toUpperCase(), name: flexName,
+            team: g(r,'FLEX Team').toUpperCase(), opp: g(r,'FLEX Opponent').toUpperCase(),
+            total: parseFloat(g(r,'FLEX Total'))||null, matchup: parseInt(g(r,'FLEX Matchup'))||null };
+      }
+      const kName = g(r,'K Player'); if (kName) {
+        const key = normName(kName); if (key)
+          kMap[key] = { rank: parseInt(g(r,'K Rank'))||32, name: kName,
+            team: g(r,'K Team').toUpperCase(), projection: parseFloat(g(r,'K Projection'))||null,
+            opp: g(r,'K Opponent').toUpperCase() };
+      }
     });
-    callback(map);
+    callback({ qbMap, rbMap, wrMap, teMap, defMap, kMap, flexMap });
   }});
 }
 
-// Parse Flex CSV: Rank, FLEX, Team, Opponent, Total, Pos, Matchup
-function parseWeeklyFlexCsv(text, callback) {
-  Papa.parse(text, { header: true, skipEmptyLines: true, complete: result => {
-    const map = {};
-    result.data.forEach(r => {
-      const g = (...ns) => { const ks = Object.keys(r); for (const n of ns) { const k = ks.find(k => k.trim().toLowerCase() === n.toLowerCase()); if (k !== undefined) return (r[k]||'').trim(); } return ''; };
-      const name = g('FLEX','Player','Name'); if (!name) return;
-      const key = normName(name); if (!key) return;
-      map[key] = { rank: parseInt(g('Rank','rank'))||999, name, pos: g('Pos','Position','pos').toUpperCase(), team: g('Team','team').toUpperCase(), opp: g('Opponent','Opp','opp').toUpperCase(), total: parseFloat(g('Total','total'))||null, matchup: parseInt(g('Matchup','matchup'))||null };
-    });
-    // Compute per-position rank (posRank) within each position group
-    const byPos = {};
-    Object.values(map).forEach(e => { if (!byPos[e.pos]) byPos[e.pos] = []; byPos[e.pos].push(e); });
-    Object.values(byPos).forEach(grp => { grp.sort((a, b) => a.rank - b.rank); grp.forEach((e, i) => { e.posRank = i + 1; }); });
-    callback(map);
-  }});
-}
-
-function onWeeklyQbUpload(evt) {
+function onWeeklyAllUpload(evt) {
   const file = evt.target.files?.[0]; evt.target.value = ''; if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => parseWeeklyQbCsv(e.target.result, map => {
-    weeklyQbMap = map; weeklyHasQb = Object.keys(map).length > 0;
+  reader.onload = e => parseWeeklyAllCsv(e.target.result, maps => {
+    weeklyQbMap   = maps.qbMap;
+    weeklyRbMap   = maps.rbMap;
+    weeklyWrMap   = maps.wrMap;
+    weeklyTeMap   = maps.teMap;
+    weeklyDefMap  = maps.defMap;
+    weeklyKMap    = maps.kMap;
+    weeklyFlexMap = maps.flexMap;
+    weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
     saveWeeklyCached(); updateWeeklyUploadStatus();
-    if (weeklyHasQb || weeklyHasFlex) renderWeeklySummary();
-  });
-  reader.readAsText(file);
-}
-
-function onWeeklyFlexUpload(evt) {
-  const file = evt.target.files?.[0]; evt.target.value = ''; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => parseWeeklyFlexCsv(e.target.result, map => {
-    weeklyFlexMap = map; weeklyHasFlex = Object.keys(map).length > 0;
-    saveWeeklyCached(); updateWeeklyUploadStatus();
-    if (weeklyHasQb || weeklyHasFlex) renderWeeklySummary();
+    if (weeklyHasRankings) renderWeeklySummary();
   });
   reader.readAsText(file);
 }
 
 function updateWeeklyUploadStatus() {
   const el = document.getElementById('ws-upload-status'); if (!el) return;
-  const parts = [];
-  if (weeklyHasQb)   parts.push(`✓ ${Object.keys(weeklyQbMap).length} QBs`);
-  if (weeklyHasFlex) parts.push(`✓ ${Object.keys(weeklyFlexMap).length} Flex`);
-  el.textContent  = parts.length ? parts.join(' · ') : 'Upload QB and Flex CSV to see recommendations';
-  el.className    = 'ls-upload-status' + (parts.length === 2 ? ' ok' : '');
+  if (weeklyHasRankings) {
+    const parts = [
+      Object.keys(weeklyQbMap).length   ? `${Object.keys(weeklyQbMap).length} QB`    : '',
+      Object.keys(weeklyFlexMap).length ? `${Object.keys(weeklyFlexMap).length} Flex` : '',
+      Object.keys(weeklyDefMap).length  ? `${Object.keys(weeklyDefMap).length} DEF`   : '',
+      Object.keys(weeklyKMap).length    ? `${Object.keys(weeklyKMap).length} K`       : '',
+    ].filter(Boolean);
+    el.textContent = `✓ ${parts.join(' · ')}`;
+    el.className   = 'ls-upload-status ok';
+  } else {
+    el.textContent = 'Upload weekly rankings CSV to see recommendations';
+    el.className   = 'ls-upload-status';
+  }
 }
 
 // Assign slots using weekly rank (positional first, then FLEX by overall rank)
@@ -3854,7 +3901,8 @@ function assignWeeklySlots(players, rosterPositions) {
     else if (slot === 'RB')         p = pickBest(p => p.pos === 'RB', 'flexRank');
     else if (slot === 'WR')         p = pickBest(p => p.pos === 'WR', 'flexRank');
     else if (slot === 'TE')         p = pickBest(p => p.pos === 'TE', 'flexRank');
-    else if (slot === 'K')          p = pickBest(p => p.pos === 'K',  'flexRank');
+    else if (slot === 'K')          p = pickBest(p => p.pos === 'K',   'kRank');
+    else if (slot === 'DEF')        p = pickBest(p => p.pos === 'DEF', 'defRank');
     else if (slot === 'FLEX')       p = pickBest(p => ['RB','WR','TE'].includes(p.pos), 'flexRank');
     else if (slot === 'SUPER_FLEX') p = pickBest(p => p.pos === 'QB', 'qbRank') || pickBest(p => ['RB','WR','TE'].includes(p.pos), 'flexRank');
     else if (slot === 'REC_FLEX')   p = pickBest(p => ['WR','TE'].includes(p.pos), 'flexRank');
@@ -3874,11 +3922,20 @@ function getUpgradePids(slotted) {
 
   slotted.filter(p => p.bench).forEach(bp => {
     if (bp.pos === 'QB') {
-      // Can replace a QB starter (in QB or SF slot) ranked worse
       if (bp.qbRank == null) return;
-      const canReplace = starters.some(s =>
-        s.pos === 'QB' && (s.qbRank ?? 0) > (bp.qbRank ?? 9999)
-      );
+      const canReplace = starters.some(s => s.pos === 'QB' && (s.qbRank ?? 0) > (bp.qbRank ?? 9999));
+      if (canReplace) upgrades.add(bp.pid);
+      return;
+    }
+    if (bp.pos === 'DEF') {
+      if (bp.defRank == null) return;
+      const canReplace = starters.some(s => s.pos === 'DEF' && (s.defRank ?? 0) > (bp.defRank ?? 9999));
+      if (canReplace) upgrades.add(bp.pid);
+      return;
+    }
+    if (bp.pos === 'K') {
+      if (bp.kRank == null) return;
+      const canReplace = starters.some(s => s.pos === 'K' && (s.kRank ?? 0) > (bp.kRank ?? 9999));
       if (canReplace) upgrades.add(bp.pid);
       return;
     }
@@ -3903,17 +3960,35 @@ function getUpgradePids(slotted) {
 // Matchup quality is visible from the ENV bar color; chip = quick pos + rank ID.
 function buildWeeklyRankChip(p) {
   const posBg = POS_CHIP_COLOR[p.pos] || '#374151';
+  const dash  = `<span style="min-width:32px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
+  const chip  = (label, tip) =>
+    `<span style="font-size:10px;font-weight:800;color:#fff;background:${posBg};border-radius:4px;padding:1px 5px;min-width:26px;text-align:center;flex-shrink:0" title="${tip}">${label}</span>`;
+
   if (p.pos === 'QB') {
-    // Only show tier chip if this QB is actually in the weekly rankings
-    if (p.qbRank == null) return `<span style="min-width:32px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
+    if (p.qbRank == null) return dash;
     const tier = p.qbTier ?? 5;
-    const tip  = `QB Tier ${tier} · Rank #${p.qbRank}`;
-    return `<span style="font-size:10px;font-weight:800;color:#fff;background:${posBg};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0" title="${tip}">T${tier}</span>`;
+    return chip(`T${tier}`, `QB Tier ${tier} · Rank #${p.qbRank}${p.matchup != null ? ` · matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : ''}`);
   }
-  const rank = p.flexRank;
-  if (rank == null) return `<span style="min-width:32px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
-  const tip = p.matchup != null ? `${p.pos} Flex #${rank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `${p.pos} Flex #${rank}`;
-  return `<span style="font-size:10px;font-weight:800;color:#fff;background:${posBg};border-radius:4px;padding:1px 5px;min-width:30px;text-align:center;flex-shrink:0" title="${tip}">#${rank}</span>`;
+  if (p.pos === 'DEF') {
+    if (p.defRank == null) return dash;
+    const tier = p.defTier ?? '';
+    const spreadStr = p.defSpread != null ? ` · spread ${p.defSpread > 0 ? '+' : ''}${p.defSpread}` : '';
+    return chip(tier ? `T${tier}` : `#${p.defRank}`, `DEF Rank #${p.defRank}${tier ? ` · Tier ${tier}` : ''}${p.opp ? ` · vs ${p.opp}` : ''}${spreadStr}`);
+  }
+  if (p.pos === 'K') {
+    if (p.kRank == null) return dash;
+    return chip(`#${p.kRank}`, `K Rank #${p.kRank}${p.kProjection != null ? ` · Proj ${p.kProjection.toFixed(1)}` : ''}${p.opp ? ` · vs ${p.opp}` : ''}`);
+  }
+  // RB / WR / TE — show positional tier if available, flex rank as fallback
+  const flexRank = p.flexRank;
+  if (flexRank == null) return dash;
+  if (p.posTier != null) {
+    const matchTip = p.matchup != null ? ` · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : '';
+    return chip(`T${p.posTier}`, `${p.pos} Tier ${p.posTier} · Flex #${flexRank}${matchTip}`);
+  }
+  // player in FLEX list but beyond positional rankings depth — fall back to flex rank
+  const tip = p.matchup != null ? `${p.pos} Flex #${flexRank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `${p.pos} Flex #${flexRank}`;
+  return chip(`#${flexRank}`, tip);
 }
 
 // Weekly player row
@@ -3943,8 +4018,8 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
   const hdr  = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span><span class="ls-lc-meta">${meta}</span><button class="ls-lc-open" onclick="openLeagueDetail('${lg.league_id}')">Open →</button></div>`;
   if (loading) return `<div class="ls-league-card" data-lid="${lg.league_id}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
 
-  const { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank } = buildWeeklyMyTeamSection(lg, data);
-  const waiverHtml = buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank);
+  const { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank } = buildWeeklyMyTeamSection(lg, data);
+  const waiverHtml = buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank, lg);
   const isMyLeague = data?.myRosterId != null;
   return `<div class="ls-league-card${isMyLeague ? ' my-league' : ''}" data-lid="${lg.league_id}">
     ${hdr}${myTeamHtml}
@@ -3954,10 +4029,10 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
 
 function buildWeeklyMyTeamSection(lg, data) {
   const { rosters, users, projections, myRosterId } = data;
-  const _empty = { myTeamHtml: '<div class="ls-lc-loading">Your team not found.</div>', worstByPos: {}, worstFlexOccupant: 0, worstQbRank: 0 };
+  const _empty = { myTeamHtml: '<div class="ls-lc-loading">Your team not found.</div>', worstByPos: {}, worstFlexOccupant: 0, worstQbRank: 0, worstDefRank: 0, worstKRank: 0 };
   if (!myRosterId) return _empty;
   const myRoster = rosters.find(r => r.roster_id === myRosterId);
-  if (!myRoster) return { ..._empty, myTeamHtml: '<div class="ls-lc-loading">Roster unavailable.</div>' };
+  if (!myRoster) return { ..._empty, myTeamHtml: '<div class="ls-lc-loading">Roster unavailable.</div>', worstDefRank: 0, worstKRank: 0 };
   const myUser   = users.find(u => u.user_id === myRoster.owner_id);
   const teamName = myUser?.metadata?.team_name || myUser?.display_name || 'My Team';
 
@@ -3966,21 +4041,34 @@ function buildWeeklyMyTeamSection(lg, data) {
     const sInfo = norm ? sleeperByName[norm] : null;
     const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
     const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
-    let flexRank = null, posRank = null, qbRank = null, qbTier = null, opp = null, total = null, matchup = null;
+    let flexRank = null, posRank = null, posTier = null,
+        qbRank = null, qbTier = null,
+        defRank = null, defTier = null, defSpread = null,
+        kRank = null, kProjection = null,
+        opp = null, total = null, matchup = null;
     if (pos === 'QB') {
       const e = lookupWeekly(name, norm, weeklyQbMap);
       if (e) { qbRank = e.rank; qbTier = e.tier; opp = e.opp; total = e.total; matchup = e.matchup; }
+    } else if (pos === 'DEF') {
+      const teamAbbr = sInfo?.team || _sleeperRawPlayers?.[pid]?.team || pid;
+      const e = weeklyDefMap[teamAbbr] ?? weeklyDefMap[ESPN_TO_SLEEPER[teamAbbr]] ?? null;
+      if (e) { defRank = e.rank; defTier = e.tier; defSpread = e.spread; opp = e.opp; }
+    } else if (pos === 'K') {
+      const e = lookupWeekly(name, norm, weeklyKMap);
+      if (e) { kRank = e.rank; kProjection = e.projection; opp = e.opp; }
     } else {
-      const e = lookupWeekly(name, norm, weeklyFlexMap);
-      if (e) { flexRank = e.rank; posRank = e.posRank ?? null; opp = e.opp; total = e.total; matchup = e.matchup; }
+      const fe = lookupWeekly(name, norm, weeklyFlexMap);
+      if (fe) { flexRank = fe.rank; opp = fe.opp; total = fe.total; matchup = fe.matchup; }
+      const posMap = pos === 'RB' ? weeklyRbMap : pos === 'WR' ? weeklyWrMap : pos === 'TE' ? weeklyTeMap : null;
+      if (posMap) { const pe = lookupWeekly(name, norm, posMap); if (pe) { posRank = pe.rank; posTier = pe.tier; } }
     }
-    return { pid, name, pos, flexRank, posRank, qbRank, qbTier, opp, total, matchup, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
+    return { pid, name, pos, flexRank, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
   });
 
   const rosterPositions = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
   const slotted  = assignWeeklySlots(players, rosterPositions);
-  const starters = slotted.filter(p => !p.bench && p.pos !== 'DEF');
-  const bench    = slotted.filter(p => p.bench && p.pos !== 'K');
+  const starters = slotted.filter(p => !p.bench);
+  const bench    = slotted.filter(p => p.bench);
   const upgrades = getUpgradePids(slotted);
 
   // Per-position worst rank for players in their own positional slot (not FLEX)
@@ -3992,18 +4080,20 @@ function buildWeeklyMyTeamSection(lg, data) {
   // Worst rank of whoever is actually sitting in a FLEX slot (any flex-eligible pos)
   const worstFlexOccupant = starters.filter(s => FLEX_SLOTS.has(s.slot) && ['RB','WR','TE'].includes(s.pos))
                                     .reduce((w, s) => Math.max(w, s.flexRank ?? 0), 0);
-  const worstQbRank = starters.filter(p => p.pos === 'QB').reduce((w, p) => Math.max(w, p.qbRank ?? 0), 0);
+  const worstQbRank  = starters.filter(p => p.pos === 'QB').reduce((w, p) => Math.max(w, p.qbRank  ?? 0), 0);
+  const worstDefRank = starters.filter(p => p.pos === 'DEF').reduce((w, p) => Math.max(w, p.defRank ?? 0), 0);
+  const worstKRank   = starters.filter(p => p.pos === 'K').reduce((w, p) => Math.max(w, p.kRank   ?? 0), 0);
 
   const rankedCount = starters.filter(p => p.flexRank != null || p.qbRank != null).length;
   const avgRank = rankedCount
     ? Math.round(starters.reduce((s, p) => s + (p.qbRank ?? p.flexRank ?? 0), 0) / Math.max(rankedCount, 1))
     : null;
   const projTotal = starters.reduce((s, p) => s + (p.projPts || 0), 0);
-  const noRankings = !weeklyHasQb && !weeklyHasFlex;
+  const noRankings = !weeklyHasRankings;
 
   const upgradeCount = [...upgrades].filter(pid => bench.some(p => p.pid === pid)).length;
   const starterRows  = starters.map(p => weeklyPlayerRow(p, false)).join('');
-  const benchRows    = bench.sort((a, b) => (a.flexRank ?? a.qbRank ?? 9999) - (b.flexRank ?? b.qbRank ?? 9999))
+  const benchRows    = bench.sort((a, b) => (a.flexRank ?? a.qbRank ?? a.defRank ?? a.kRank ?? 9999) - (b.flexRank ?? b.qbRank ?? b.defRank ?? b.kRank ?? 9999))
                            .map(p => weeklyPlayerRow(p, upgrades.has(p.pid))).join('');
 
   const myTeamHtml = `<div class="ls-lc-section">
@@ -4020,35 +4110,74 @@ function buildWeeklyMyTeamSection(lg, data) {
     </div>` : ''}
   </div>`;
 
-  return { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank };
+  return { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank };
 }
 
-function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank) {
-  if (!weeklyHasQb && !weeklyHasFlex) return '';
-  const { rosters, projections } = data;
+function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank, lg) {
+  if (!weeklyHasRankings) return '';
+  const { rosters } = data;
+  const leagueSlots    = new Set(lg?.roster_positions || []);
+  const hasDefSlot     = leagueSlots.has('DEF');
+  const hasKSlot       = leagueSlots.has('K');
 
-  const rosteredNorms = new Set();
-  (rosters || []).forEach(r => (r.players || []).forEach(pid => { const n = sleeperById[pid]; if (n) rosteredNorms.add(n); }));
+  const rosteredNorms    = new Set();
+  const rosteredDefAbbrs = new Set();
+  (rosters || []).forEach(r => (r.players || []).forEach(pid => {
+    const n = sleeperById[pid]; if (n) rosteredNorms.add(n);
+    if (_sleeperRawPlayers?.[pid]?.position === 'DEF') rosteredDefAbbrs.add(_sleeperRawPlayers[pid]?.team || pid);
+  }));
+
+  const noRankPlayer = (label) => `<div class="ls-lc-loading">${label}</div>`;
 
   const availQbs = Object.entries(weeklyQbMap)
     .filter(([norm]) => !rosteredNorms.has(norm))
     .sort((a, b) => a[1].rank - b[1].rank).slice(0, 2)
-    .map(([norm, e]) => ({ pid: norm, name: e.name, pos: 'QB', flexRank: null, qbRank: e.rank, qbTier: e.tier, opp: e.opp, total: e.total, matchup: e.matchup, projPts: null }));
+    .map(([norm, e]) => ({ pid: norm, name: e.name, pos: 'QB', flexRank: null, posRank: null, posTier: null,
+      qbRank: e.rank, qbTier: e.tier, defRank: null, defTier: null, kRank: null,
+      opp: e.opp, total: e.total, matchup: e.matchup, projPts: null }));
 
   const availFlex = Object.entries(weeklyFlexMap)
     .filter(([norm, e]) => !rosteredNorms.has(norm) && ['RB','WR','TE'].includes(e.pos))
     .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
-    .map(([norm, e]) => ({ pid: norm, name: e.name, pos: e.pos, flexRank: e.rank, posRank: e.posRank ?? null, qbRank: null, qbTier: null, opp: e.opp, total: e.total, matchup: e.matchup, projPts: null }));
+    .map(([norm, e]) => {
+      const posMap = e.pos === 'RB' ? weeklyRbMap : e.pos === 'WR' ? weeklyWrMap : weeklyTeMap;
+      const pe = posMap[norm] || null;
+      return { pid: norm, name: e.name, pos: e.pos, flexRank: e.rank, posRank: pe?.rank ?? null, posTier: pe?.tier ?? null,
+        qbRank: null, qbTier: null, defRank: null, defTier: null, kRank: null,
+        opp: e.opp, total: e.total, matchup: e.matchup, projPts: null };
+    });
 
-  const qbRows   = availQbs.map(p  => weeklyPlayerRow(p, (p.qbRank   ?? 9999) < worstQbRank)).join('')
-                   || '<div class="ls-lc-loading">No QBs available</div>';
-  const flexRows = availFlex.map(p => weeklyPlayerRow(p, (p.flexRank ?? 9999) < Math.max(worstByPos[p.pos] ?? 0, worstFlexOccupant))).join('')
-                   || '<div class="ls-lc-loading">None available</div>';
+  const availDefs = !hasDefSlot ? [] : Object.entries(weeklyDefMap)
+    .filter(([abbr]) => !rosteredDefAbbrs.has(abbr))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 2)
+    .map(([abbr, e]) => ({ pid: abbr, name: e.name, pos: 'DEF', flexRank: null, posRank: null, posTier: null,
+      qbRank: null, qbTier: null, defRank: e.rank, defTier: e.tier, defSpread: e.spread, kRank: null,
+      opp: e.opp, projPts: null }));
 
-  return `<div class="ls-lc-section"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+  const availKs = !hasKSlot ? [] : Object.entries(weeklyKMap)
+    .filter(([norm]) => !rosteredNorms.has(norm))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 2)
+    .map(([norm, e]) => ({ pid: norm, name: e.name, pos: 'K', flexRank: null, posRank: null, posTier: null,
+      qbRank: null, qbTier: null, defRank: null, defTier: null, kRank: e.rank, kProjection: e.projection,
+      opp: e.opp, projPts: null }));
+
+  const qbRows   = availQbs.map(p => weeklyPlayerRow(p, (p.qbRank ?? 9999) < worstQbRank)).join('') || noRankPlayer('No QBs available');
+  const flexRows = availFlex.map(p => weeklyPlayerRow(p, (p.flexRank ?? 9999) < Math.max(worstByPos[p.pos] ?? 0, worstFlexOccupant))).join('') || noRankPlayer('None available');
+
+  const mainGrid = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
     <div><div class="ls-lc-section-title">⚡ Top QB</div>${qbRows}</div>
     <div><div class="ls-lc-section-title">⚡ Top Flex</div>${flexRows}</div>
-  </div></div>`;
+  </div>`;
+
+  let extraGrid = '';
+  if (hasDefSlot || hasKSlot) {
+    const cols = [hasDefSlot, hasKSlot].filter(Boolean).length;
+    const defCol = hasDefSlot ? `<div><div class="ls-lc-section-title">⚡ Top DEF</div>${availDefs.map(p => weeklyPlayerRow(p, (p.defRank ?? 9999) < worstDefRank)).join('') || noRankPlayer('None available')}</div>` : '';
+    const kCol   = hasKSlot   ? `<div><div class="ls-lc-section-title">⚡ Top K</div>${availKs.map(p => weeklyPlayerRow(p, (p.kRank ?? 9999) < worstKRank)).join('') || noRankPlayer('None available')}</div>` : '';
+    extraGrid = `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:8px;margin-top:8px">${defCol}${kCol}</div>`;
+  }
+
+  return `<div class="ls-lc-section">${mainGrid}${extraGrid}</div>`;
 }
 
 async function openWeeklySummary() {
