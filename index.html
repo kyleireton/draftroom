@@ -944,6 +944,14 @@ body {
 .ls-upload-btn:hover { background: #3b6de8; }
 .ls-upload-status { font-size: 11px; color: #4b5563; }
 .ls-upload-status.ok { color: #22c55e; }
+
+/* ── WEEKLY START/SIT SCREEN ── */
+#weekly-summary-screen { position:fixed; inset:0; overflow-y:auto; display:flex; flex-direction:column; }
+.ws-view-toggle { display:flex; gap:3px; background:#0d1117; border:1px solid #1e2530; border-radius:8px; padding:3px; flex-shrink:0; }
+.ws-tab { background:none; border:none; color:#4b5563; font-size:11px; font-weight:600; padding:4px 11px; border-radius:5px; cursor:pointer; white-space:nowrap; transition:background 0.12s,color 0.12s; }
+.ws-tab.active { background:#4f7ef8; color:#fff; }
+.ws-tab:hover:not(.active) { color:#94a3b8; }
+.ws-upgrade-row { background:rgba(34,197,94,0.06) !important; }
 </style>
 </head>
 <body>
@@ -1049,9 +1057,35 @@ body {
     <button class="ls-odds-btn" onclick="fetchEspnOdds(true)" style="margin-left:4px">🔄 Refresh Odds</button>
     <span class="ls-odds-status" id="ls-odds-status"></span>
     <span class="ls-upload-status" id="ls-upload-status"></span>
+    <button class="ws-tab" onclick="openWeeklySummary()" style="margin-left:auto;border:1px solid #2d3748">This Week →</button>
   </div>
   <div class="ls-body">
     <div id="ls-leagues-list"></div>
+  </div>
+</div>
+
+<!-- ── WEEKLY SUMMARY SCREEN ── -->
+<div id="weekly-summary-screen" style="display:none">
+  <div class="ls-header">
+    <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
+    <input type="file" id="ws-qb-file"   accept=".csv" style="display:none" onchange="onWeeklyQbUpload(event)">
+    <input type="file" id="ws-flex-file" accept=".csv" style="display:none" onchange="onWeeklyFlexUpload(event)">
+    <div style="flex:1;min-width:0">
+      <div class="ls-title" id="ws-title">Week 1 · Start/Sit</div>
+      <div class="ls-meta"  id="ws-meta"></div>
+    </div>
+    <div class="ws-view-toggle">
+      <button class="ws-tab" onclick="openLeagueSummary()">Season</button>
+      <button class="ws-tab active" id="ws-week-tab">Week 1</button>
+    </div>
+  </div>
+  <div class="ls-upload-bar">
+    <button class="ls-upload-btn" onclick="document.getElementById('ws-qb-file').click()">↑ QB Rankings</button>
+    <button class="ls-upload-btn" style="background:#166534" onclick="document.getElementById('ws-flex-file').click()">↑ Flex Rankings</button>
+    <span class="ls-upload-status" id="ws-upload-status">Upload QB and Flex CSV to see weekly recommendations</span>
+  </div>
+  <div class="ls-body">
+    <div id="ws-leagues-list"></div>
   </div>
 </div>
 
@@ -1213,14 +1247,14 @@ body {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 // ── App navigation ──
-const ALL_SCREENS = ['landing-screen','upload-screen','board-screen','leagues-screen','league-detail-screen','league-summary-screen'];
+const ALL_SCREENS = ['landing-screen','upload-screen','board-screen','leagues-screen','league-detail-screen','league-summary-screen','weekly-summary-screen'];
 function showScreen(name) {
   ALL_SCREENS.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     const isTarget = id === name + '-screen' || id === name;
     el.style.display = isTarget ? (id === 'board-screen' || id === 'league-detail-screen' ? 'flex' : '') : 'none';
-    if (isTarget && id === 'league-summary-screen') el.style.display = 'flex';
+    if (isTarget && (id === 'league-summary-screen' || id === 'weekly-summary-screen')) el.style.display = 'flex';
   });
 }
 let boardIsActive = false; // true once a draft board has been successfully loaded
@@ -3286,6 +3320,7 @@ async function fetchEspnOdds(force = false) {
     // Re-render cards with freshly populated ENV data
     renderLeagueSummary();
   } catch(e) {
+    console.error('[DraftRoom] fetchEspnOdds error:', e);
     if (statusEl) { statusEl.textContent = 'Odds unavailable'; statusEl.className = 'ls-odds-status'; }
   }
 }
@@ -3663,6 +3698,375 @@ function buildLcWaiver(data) {
 // ── Legacy per-team render helpers (kept for league-detail screen usage) ──
 function renderSummaryWaiver() {}  // now handled per-league in buildLcWaiver
 function renderSummaryTeams()  {}  // now handled per-league in buildLcMyTeam
+
+// ═══════════════════════════════════════════════════════════════════
+// ── WEEKLY START/SIT ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+
+let weeklyQbMap   = {};    // normName → {rank,tier,team,opp,total,matchup}
+let weeklyFlexMap = {};    // normName → {rank,pos,team,opp,total,matchup}
+let weeklyNflWeek = null;  // current NFL week number
+let weeklyHasQb   = false;
+let weeklyHasFlex = false;
+
+// Persist/restore from localStorage
+(function loadWeeklyCached() {
+  try {
+    const raw = localStorage.getItem('dr_weekly_rankings');
+    if (!raw) return;
+    const { qb, flex } = JSON.parse(raw);
+    weeklyQbMap   = qb   || {};
+    weeklyFlexMap = flex || {};
+    weeklyHasQb   = Object.keys(weeklyQbMap).length   > 0;
+    weeklyHasFlex = Object.keys(weeklyFlexMap).length > 0;
+  } catch(_) {}
+})();
+
+function saveWeeklyCached() {
+  try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ qb: weeklyQbMap, flex: weeklyFlexMap })); } catch(_) {}
+}
+
+// Matchup scale: 1 = best matchup (easiest), 32 = worst (hardest)
+function matchupColor(m) {
+  if (m == null) return '#374151';
+  if (m <= 10) return '#22c55e';   // great: opponent D is bottom-10 vs pos
+  if (m <= 21) return '#eab308';   // neutral
+  return '#ef4444';                 // tough: opponent D is top-10 vs pos
+}
+function matchupLabel(m) {
+  if (m == null) return '?';
+  if (m <= 10) return 'Easy';
+  if (m <= 21) return 'Neutral';
+  return 'Tough';
+}
+
+// Name lookup in weekly maps (tries norm + aliases)
+function lookupWeekly(name, norm, map) {
+  if (!map) return null;
+  const n = normName(name);
+  return map[n]
+      || (norm ? map[norm] : null)
+      || (NAME_ALIASES[n] ? map[NAME_ALIASES[n]] : null)
+      || (norm && NAME_ALIASES[norm] ? map[NAME_ALIASES[norm]] : null)
+      || null;
+}
+
+// Parse QB CSV: Rank, Quarterback, Team, Opponent, Total, Matchup, Tier
+function parseWeeklyQbCsv(text, callback) {
+  Papa.parse(text, { header: true, skipEmptyLines: true, complete: result => {
+    const map = {};
+    result.data.forEach(r => {
+      const g = (...ns) => { const ks = Object.keys(r); for (const n of ns) { const k = ks.find(k => k.trim().toLowerCase() === n.toLowerCase()); if (k !== undefined) return (r[k]||'').trim(); } return ''; };
+      const name = g('Quarterback','QB','Player','Name'); if (!name) return;
+      const key = normName(name); if (!key) return;
+      map[key] = { rank: parseInt(g('Rank','rank'))||99, name, team: g('Team','team').toUpperCase(), opp: g('Opponent','Opp','opp').toUpperCase(), total: parseFloat(g('Total','total'))||null, matchup: parseInt(g('Matchup','matchup'))||null, tier: parseInt(g('Tier','tier'))||5 };
+    });
+    callback(map);
+  }});
+}
+
+// Parse Flex CSV: Rank, FLEX, Team, Opponent, Total, Pos, Matchup
+function parseWeeklyFlexCsv(text, callback) {
+  Papa.parse(text, { header: true, skipEmptyLines: true, complete: result => {
+    const map = {};
+    result.data.forEach(r => {
+      const g = (...ns) => { const ks = Object.keys(r); for (const n of ns) { const k = ks.find(k => k.trim().toLowerCase() === n.toLowerCase()); if (k !== undefined) return (r[k]||'').trim(); } return ''; };
+      const name = g('FLEX','Player','Name'); if (!name) return;
+      const key = normName(name); if (!key) return;
+      map[key] = { rank: parseInt(g('Rank','rank'))||999, name, pos: g('Pos','Position','pos').toUpperCase(), team: g('Team','team').toUpperCase(), opp: g('Opponent','Opp','opp').toUpperCase(), total: parseFloat(g('Total','total'))||null, matchup: parseInt(g('Matchup','matchup'))||null };
+    });
+    callback(map);
+  }});
+}
+
+function onWeeklyQbUpload(evt) {
+  const file = evt.target.files?.[0]; evt.target.value = ''; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => parseWeeklyQbCsv(e.target.result, map => {
+    weeklyQbMap = map; weeklyHasQb = Object.keys(map).length > 0;
+    saveWeeklyCached(); updateWeeklyUploadStatus();
+    if (weeklyHasQb || weeklyHasFlex) renderWeeklySummary();
+  });
+  reader.readAsText(file);
+}
+
+function onWeeklyFlexUpload(evt) {
+  const file = evt.target.files?.[0]; evt.target.value = ''; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => parseWeeklyFlexCsv(e.target.result, map => {
+    weeklyFlexMap = map; weeklyHasFlex = Object.keys(map).length > 0;
+    saveWeeklyCached(); updateWeeklyUploadStatus();
+    if (weeklyHasQb || weeklyHasFlex) renderWeeklySummary();
+  });
+  reader.readAsText(file);
+}
+
+function updateWeeklyUploadStatus() {
+  const el = document.getElementById('ws-upload-status'); if (!el) return;
+  const parts = [];
+  if (weeklyHasQb)   parts.push(`✓ ${Object.keys(weeklyQbMap).length} QBs`);
+  if (weeklyHasFlex) parts.push(`✓ ${Object.keys(weeklyFlexMap).length} Flex`);
+  el.textContent  = parts.length ? parts.join(' · ') : 'Upload QB and Flex CSV to see recommendations';
+  el.className    = 'ls-upload-status' + (parts.length === 2 ? ' ok' : '');
+}
+
+// Assign slots using weekly rank (positional first, then FLEX by overall rank)
+function assignWeeklySlots(players, rosterPositions) {
+  const avail = players.map(p => ({ ...p }));
+  const used  = new Set();
+  function pickBest(pred, rankKey) {
+    const cands = avail.filter(p => !used.has(p.pid) && pred(p));
+    if (!cands.length) return null;
+    cands.sort((a, b) => (a[rankKey] ?? 9999) - (b[rankKey] ?? 9999));
+    used.add(cands[0].pid); return cands[0];
+  }
+  const starters = [];
+  (rosterPositions || []).forEach(slot => {
+    if (slot === 'BN' || slot === 'IR') return;
+    let p = null;
+    if      (slot === 'QB')         p = pickBest(p => p.pos === 'QB', 'qbRank');
+    else if (slot === 'RB')         p = pickBest(p => p.pos === 'RB', 'flexRank');
+    else if (slot === 'WR')         p = pickBest(p => p.pos === 'WR', 'flexRank');
+    else if (slot === 'TE')         p = pickBest(p => p.pos === 'TE', 'flexRank');
+    else if (slot === 'K')          p = pickBest(p => p.pos === 'K',  'flexRank');
+    else if (slot === 'FLEX')       p = pickBest(p => ['RB','WR','TE'].includes(p.pos), 'flexRank');
+    else if (slot === 'SUPER_FLEX') p = pickBest(p => p.pos === 'QB', 'qbRank') || pickBest(p => ['RB','WR','TE'].includes(p.pos), 'flexRank');
+    else if (slot === 'REC_FLEX')   p = pickBest(p => ['WR','TE'].includes(p.pos), 'flexRank');
+    else if (slot === 'WRRB_FLEX')  p = pickBest(p => ['WR','RB'].includes(p.pos), 'flexRank');
+    if (p) { p.slot = slot; p.bench = false; starters.push(p); }
+  });
+  avail.filter(p => !used.has(p.pid)).forEach(p => { p.slot = 'BN'; p.bench = true; starters.push(p); });
+  return starters;
+}
+
+// Return set of PIDs for bench players that rank better than a current starter
+function getUpgradePids(slotted) {
+  const starters = slotted.filter(p => !p.bench);
+  const upgrades = new Set();
+  const worstFlex = starters.filter(p => ['RB','WR','TE'].includes(p.pos)).reduce((w, p) => Math.max(w, p.flexRank ?? 0), 0);
+  const worstQb   = starters.filter(p => p.pos === 'QB').reduce((w, p) => Math.max(w, p.qbRank ?? 0), 0);
+
+  slotted.filter(p => p.bench).forEach(bp => {
+    if (bp.pos === 'QB' && (bp.qbRank ?? 9999) < worstQb) { upgrades.add(bp.pid); return; }
+    if (!['RB','WR','TE'].includes(bp.pos)) return;
+    const worstPos = starters.filter(s => s.pos === bp.pos).reduce((w, s) => Math.max(w, s.flexRank ?? 0), 0);
+    if ((bp.flexRank ?? 9999) < worstPos)  { upgrades.add(bp.pid); return; }
+    if ((bp.flexRank ?? 9999) < worstFlex) { upgrades.add(bp.pid); }
+  });
+  return upgrades;
+}
+
+// Build rank chip: QB → tier chip; flex → rank # colored by matchup
+function buildWeeklyRankChip(p) {
+  if (p.pos === 'QB') {
+    const tier = p.qbTier ?? 5;
+    const bg = ['','#6d28d9','#4338ca','#1d4ed8','#0369a1','#374151','#1f2937'][Math.min(tier,6)] || '#374151';
+    return `<span style="font-size:10px;font-weight:800;color:#fff;background:${bg};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0" title="QB Tier ${tier}">T${tier}</span>`;
+  }
+  const rank = p.flexRank;
+  if (rank == null) return `<span style="min-width:32px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
+  const bg  = matchupColor(p.matchup);
+  const tip = p.matchup != null ? `Flex #${rank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `Flex #${rank}`;
+  return `<span style="font-size:10px;font-weight:800;color:#fff;background:${bg};opacity:0.92;border-radius:4px;padding:1px 5px;min-width:30px;text-align:center;flex-shrink:0" title="${tip}">#${rank}</span>`;
+}
+
+// Weekly player row
+function weeklyPlayerRow(p, isUpgrade) {
+  const dn    = displayName(p.name);
+  const chip  = buildWeeklyRankChip(p);
+  const slotL = p.slot && p.slot !== 'BN' ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0">${p.slot === 'SUPER_FLEX' ? 'SF' : p.slot === 'REC_FLEX' ? 'RF' : p.slot}</span>` : '';
+  const oppTag = p.opp ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0;min-width:28px">vs ${p.opp}</span>` : '';
+  const upgBadge = isUpgrade ? `<span style="font-size:9px;font-weight:800;color:#22c55e;background:rgba(34,197,94,0.18);border-radius:3px;padding:1px 5px;flex-shrink:0">⬆ START</span>` : '';
+  const projSpan = p.projPts != null ? `<span class="ls-p-proj" style="color:#94a3b8">${p.projPts}</span>` : `<span class="ls-p-proj"></span>`;
+  const rowBg = isUpgrade ? 'background:rgba(34,197,94,0.06);' : '';
+  return `<div class="ls-player-row" style="${posRowStyle(p.pos)}${rowBg}">
+    ${chip}
+    <span class="ls-p-name" title="${escHtml(dn)}" style="color:#f1f5f9">${escHtml(dn)}</span>
+    <span class="ls-p-pos" style="color:${posTextColor(p.pos)};font-weight:700">${p.pos}</span>
+    ${slotL}${oppTag}
+    ${buildEnvBar(p.total)}
+    ${projSpan}
+    ${upgBadge}
+  </div>`;
+}
+
+// Build per-league weekly card HTML
+function buildWeeklyLeagueCardHtml(lg, data, loading) {
+  const name = escHtml(lg.name || 'Unknown League');
+  const meta = [(lg.settings?.num_teams || ''), lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std'].filter(Boolean).join('-team · ');
+  const hdr  = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span><span class="ls-lc-meta">${meta}</span><button class="ls-lc-open" onclick="openLeagueDetail('${lg.league_id}')">Open →</button></div>`;
+  if (loading) return `<div class="ls-league-card" data-lid="${lg.league_id}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
+
+  const { myTeamHtml, worstFlexRank, worstQbRank } = buildWeeklyMyTeamSection(lg, data);
+  const waiverHtml = buildWeeklyWaiverSection(data, worstFlexRank, worstQbRank);
+  const isMyLeague = data?.myRosterId != null;
+  return `<div class="ls-league-card${isMyLeague ? ' my-league' : ''}" data-lid="${lg.league_id}">
+    ${hdr}${myTeamHtml}
+    ${waiverHtml ? `<div class="ls-lc-divider"></div>${waiverHtml}` : ''}
+  </div>`;
+}
+
+function buildWeeklyMyTeamSection(lg, data) {
+  const { rosters, users, projections, myRosterId } = data;
+  if (!myRosterId) return { myTeamHtml: '<div class="ls-lc-loading">Your team not found.</div>', worstFlexRank: 0, worstQbRank: 0 };
+  const myRoster = rosters.find(r => r.roster_id === myRosterId);
+  if (!myRoster) return { myTeamHtml: '<div class="ls-lc-loading">Roster unavailable.</div>', worstFlexRank: 0, worstQbRank: 0 };
+  const myUser   = users.find(u => u.user_id === myRoster.owner_id);
+  const teamName = myUser?.metadata?.team_name || myUser?.display_name || 'My Team';
+
+  const players = (myRoster.players || []).map(pid => {
+    const norm  = sleeperById[pid];
+    const sInfo = norm ? sleeperByName[norm] : null;
+    const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+    const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
+    let flexRank = null, qbRank = null, qbTier = null, opp = null, total = null, matchup = null;
+    if (pos === 'QB') {
+      const e = lookupWeekly(name, norm, weeklyQbMap);
+      if (e) { qbRank = e.rank; qbTier = e.tier; opp = e.opp; total = e.total; matchup = e.matchup; }
+    } else {
+      const e = lookupWeekly(name, norm, weeklyFlexMap);
+      if (e) { flexRank = e.rank; opp = e.opp; total = e.total; matchup = e.matchup; }
+    }
+    return { pid, name, pos, flexRank, qbRank, qbTier, opp, total, matchup, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
+  });
+
+  const rosterPositions = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
+  const slotted  = assignWeeklySlots(players, rosterPositions);
+  const starters = slotted.filter(p => !p.bench && p.pos !== 'DEF');
+  const bench    = slotted.filter(p => p.bench && p.pos !== 'K');
+  const upgrades = getUpgradePids(slotted);
+
+  const worstFlexRank = starters.filter(p => ['RB','WR','TE'].includes(p.pos)).reduce((w, p) => Math.max(w, p.flexRank ?? 0), 0);
+  const worstQbRank   = starters.filter(p => p.pos === 'QB').reduce((w, p) => Math.max(w, p.qbRank ?? 0), 0);
+
+  const rankedCount = starters.filter(p => p.flexRank != null || p.qbRank != null).length;
+  const avgRank = rankedCount
+    ? Math.round(starters.reduce((s, p) => s + (p.qbRank ?? p.flexRank ?? 0), 0) / Math.max(rankedCount, 1))
+    : null;
+  const projTotal = starters.reduce((s, p) => s + (p.projPts || 0), 0);
+  const noRankings = !weeklyHasQb && !weeklyHasFlex;
+
+  const upgradeCount = [...upgrades].filter(pid => bench.some(p => p.pid === pid)).length;
+  const starterRows  = starters.map(p => weeklyPlayerRow(p, false)).join('');
+  const benchRows    = bench.sort((a, b) => (a.flexRank ?? a.qbRank ?? 9999) - (b.flexRank ?? b.qbRank ?? 9999))
+                           .map(p => weeklyPlayerRow(p, upgrades.has(p.pid))).join('');
+
+  const myTeamHtml = `<div class="ls-lc-section">
+    <div class="ls-lc-section-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span>★ ${escHtml(teamName)}</span>
+      ${avgRank != null ? `<span style="font-size:10px;font-weight:600;color:#64748b">avg rk #${avgRank}</span>` : ''}
+      ${projTotal > 0 ? `<span style="font-size:10px;color:#4b5563;margin-left:auto">proj ${projTotal.toFixed(1)}</span>` : ''}
+      ${noRankings ? `<span style="font-size:10px;color:#374151;font-style:italic">Upload CSV to see weekly ranks</span>` : ''}
+    </div>
+    ${starterRows}
+    ${bench.length ? `<div style="margin-top:6px">
+      <div class="ls-lc-section-title">Bench${upgradeCount ? ` <span style="color:#22c55e;font-weight:700">(${upgradeCount} upgrade${upgradeCount > 1 ? 's' : ''})</span>` : ''}</div>
+      ${benchRows}
+    </div>` : ''}
+  </div>`;
+
+  return { myTeamHtml, worstFlexRank, worstQbRank };
+}
+
+function buildWeeklyWaiverSection(data, worstFlexRank, worstQbRank) {
+  if (!weeklyHasQb && !weeklyHasFlex) return '';
+  const { rosters, projections } = data;
+
+  const rosteredNorms = new Set();
+  (rosters || []).forEach(r => (r.players || []).forEach(pid => { const n = sleeperById[pid]; if (n) rosteredNorms.add(n); }));
+
+  const availQbs = Object.entries(weeklyQbMap)
+    .filter(([norm]) => !rosteredNorms.has(norm))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 2)
+    .map(([norm, e]) => ({ pid: norm, name: e.name, pos: 'QB', flexRank: null, qbRank: e.rank, qbTier: e.tier, opp: e.opp, total: e.total, matchup: e.matchup, projPts: null }));
+
+  const availFlex = Object.entries(weeklyFlexMap)
+    .filter(([norm, e]) => !rosteredNorms.has(norm) && ['RB','WR','TE'].includes(e.pos))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
+    .map(([norm, e]) => ({ pid: norm, name: e.name, pos: e.pos, flexRank: e.rank, qbRank: null, qbTier: null, opp: e.opp, total: e.total, matchup: e.matchup, projPts: null }));
+
+  const qbRows   = availQbs.map(p  => weeklyPlayerRow(p, (p.qbRank   ?? 9999) < worstQbRank)).join('')
+                   || '<div class="ls-lc-loading">No QBs available</div>';
+  const flexRows = availFlex.map(p => weeklyPlayerRow(p, (p.flexRank ?? 9999) < worstFlexRank)).join('')
+                   || '<div class="ls-lc-loading">None available</div>';
+
+  return `<div class="ls-lc-section"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div><div class="ls-lc-section-title">⚡ Top QB</div>${qbRows}</div>
+    <div><div class="ls-lc-section-title">⚡ Top Flex</div>${flexRows}</div>
+  </div></div>`;
+}
+
+async function openWeeklySummary() {
+  if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
+  showScreen('weekly-summary');
+  if (!weeklyNflWeek) {
+    try { const s = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json()); weeklyNflWeek = s?.display_week || s?.week || 1; }
+    catch(_) { weeklyNflWeek = 1; }
+  }
+  const titleEl = document.getElementById('ws-title');
+  const metaEl  = document.getElementById('ws-meta');
+  const tabEl   = document.getElementById('ws-week-tab');
+  if (titleEl) titleEl.textContent = `Week ${weeklyNflWeek} · Start/Sit`;
+  if (metaEl)  metaEl.textContent  = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}`;
+  if (tabEl)   tabEl.textContent   = `Week ${weeklyNflWeek}`;
+  updateWeeklyUploadStatus();
+  renderWeeklySummary();
+}
+
+function renderWeeklySummary() {
+  const list = document.getElementById('ws-leagues-list'); if (!list) return;
+  if (!leagueList.length) { list.innerHTML = '<div class="ls-lc-loading">No leagues found.</div>'; return; }
+  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  list.innerHTML = sorted.map(lg => buildWeeklyLeagueCardHtml(lg, null, true)).join('');
+  ensureMySleeperUserId().then(myUid => {
+    ensureSleeperDb().then(() => {
+      sorted.forEach((lg, i) => {
+        if (allLeaguesCache[lg.league_id]?.loaded) {
+          const el = list.children[i];
+          if (el) { const tmp = document.createElement('div'); tmp.innerHTML = buildWeeklyLeagueCardHtml(lg, allLeaguesCache[lg.league_id], false); el.replaceWith(tmp.firstElementChild); }
+        } else {
+          loadOneLeagueWeekly(lg, myUid, i);
+        }
+      });
+    });
+  });
+}
+
+async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
+  try {
+    const season     = new Date().getFullYear();
+    const scoringKey = lg.scoring_settings?.rec === 1 ? 'pts_ppr' : lg.scoring_settings?.rec === 0.5 ? 'pts_half_ppr' : 'pts_std';
+    const [stateRes, rosterRes, userRes] = await Promise.all([
+      fetch('https://api.sleeper.app/v1/state/nfl'),
+      fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/rosters`),
+      fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/users`),
+    ]);
+    const nflState = await stateRes.json();
+    const rosters  = await rosterRes.json();
+    const users    = await userRes.json();
+    const week     = nflState?.display_week || nflState?.week || 1;
+    let projections = {};
+    try {
+      const pRaw = await fetch(`https://api.sleeper.app/v1/projections/nfl/${season}/${week}`).then(r => r.json());
+      Object.entries(pRaw || {}).forEach(([pid, stats]) => {
+        const pts = stats[scoringKey] ?? stats.pts_half_ppr ?? stats.pts_ppr ?? stats.pts_std ?? null;
+        if (pts != null) projections[pid] = Math.round(pts * 10) / 10;
+      });
+    } catch(_) {}
+    let myRosterId = null;
+    if (myUid) { const r = rosters.find(r => r.owner_id === myUid); if (r) myRosterId = r.roster_id; }
+    const entry = { rosters, users, projections, myRosterId, loaded: true };
+    allLeaguesCache[lg.league_id] = entry;
+    const list = document.getElementById('ws-leagues-list');
+    if (list && list.children[cardIndex]) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = buildWeeklyLeagueCardHtml(lg, entry, false);
+      list.children[cardIndex].replaceWith(tmp.firstElementChild);
+    }
+  } catch(e) { console.error('[DraftRoom] loadOneLeagueWeekly:', e); }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 
 // Toast
 let _toastTimer = null;
