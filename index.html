@@ -4004,37 +4004,46 @@ function getUpgradePids(slotted) {
 // Matchup quality is visible from the ENV bar color; chip = quick pos + rank ID.
 function buildWeeklyRankChip(p) {
   const posBg = POS_CHIP_COLOR[p.pos] || '#374151';
-  const dash  = `<span style="min-width:32px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
-  const chip  = (label, tip) =>
-    `<span style="font-size:10px;font-weight:800;color:#fff;background:${posBg};border-radius:4px;padding:1px 5px;min-width:26px;text-align:center;flex-shrink:0" title="${tip}">${label}</span>`;
+  const dash  = `<span style="min-width:38px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
+
+  // Split chip: "TX | #Y" — tier left, rank right, shared background
+  const splitChip = (tier, rank, tip) => {
+    const tierPart = tier != null ? `<span style="padding:2px 5px;font-size:10px;font-weight:800;color:#fff">T${tier}</span>` : '';
+    const divider  = tier != null && rank != null ? `<span style="width:1px;background:rgba(255,255,255,0.3);align-self:stretch"></span>` : '';
+    const rankPart = rank != null ? `<span style="padding:2px 5px;font-size:10px;font-weight:800;color:rgba(255,255,255,0.82)">#${rank}</span>` : '';
+    return `<span style="display:inline-flex;align-items:center;background:${posBg};border-radius:4px;overflow:hidden;flex-shrink:0;min-width:52px" title="${tip}">${tierPart}${divider}${rankPart}</span>`;
+  };
+  // Solo chip (K — no tier): plain #rank
+  const soloChip = (label, tip) =>
+    `<span style="display:inline-flex;align-items:center;background:${posBg};border-radius:4px;overflow:hidden;flex-shrink:0;min-width:36px" title="${tip}"><span style="padding:2px 6px;font-size:10px;font-weight:800;color:#fff">${label}</span></span>`;
 
   if (p.pos === 'QB') {
     if (p.qbRank == null) return dash;
-    const tier = p.qbTier ?? 5;
-    return chip(`T${tier}`, `QB Tier ${tier} · Rank #${p.qbRank}${p.matchup != null ? ` · matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : ''}`);
+    const tier = p.qbTier ?? null;
+    const matchTip = p.matchup != null ? ` · matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : '';
+    return splitChip(tier, p.qbRank, `QB${tier ? ` Tier ${tier}` : ''} · Rank #${p.qbRank}${matchTip}`);
   }
   if (p.pos === 'DEF') {
     if (p.defRank == null) return dash;
-    const tier = p.defTier ?? '';
+    const tier = p.defTier ?? null;
     const spreadStr = p.defSpread != null ? ` · spread ${p.defSpread > 0 ? '+' : ''}${p.defSpread}` : '';
-    return chip(tier ? `T${tier}` : `#${p.defRank}`, `DEF Rank #${p.defRank}${tier ? ` · Tier ${tier}` : ''}${p.opp ? ` · vs ${p.opp}` : ''}${spreadStr}`);
+    return splitChip(tier, p.defRank, `DEF Rank #${p.defRank}${tier ? ` · Tier ${tier}` : ''}${p.opp ? ` · vs ${p.opp}` : ''}${spreadStr}`);
   }
   if (p.pos === 'K') {
     if (p.kRank == null) return dash;
-    return chip(`#${p.kRank}`, `K Rank #${p.kRank}${p.kProjection != null ? ` · Proj ${p.kProjection.toFixed(1)}` : ''}${p.opp ? ` · vs ${p.opp}` : ''}`);
+    return soloChip(`#${p.kRank}`, `K Rank #${p.kRank}${p.kProjection != null ? ` · Proj ${p.kProjection.toFixed(1)}` : ''}${p.opp ? ` · vs ${p.opp}` : ''}`);
   }
-  // RB / WR / TE — positional tier takes priority; flex rank shown as context in tooltip
+  // RB / WR / TE — positional tier + positional rank; flex rank in tooltip
   const flexRank = p.flexRank;
-  if (p.posTier != null) {
-    const matchTip  = p.matchup != null ? ` · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : '';
-    const flexStr   = flexRank != null ? ` · Flex #${flexRank}` : '';
-    const posStr    = p.posRank != null ? ` · ${p.pos} #${p.posRank}` : '';
-    return chip(`T${p.posTier}`, `${p.pos} Tier ${p.posTier}${posStr}${flexStr}${matchTip}`);
+  if (p.posTier != null || p.posRank != null) {
+    const matchTip = p.matchup != null ? ` · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : '';
+    const flexStr  = flexRank != null ? ` · Flex #${flexRank}` : '';
+    return splitChip(p.posTier ?? null, p.posRank ?? null, `${p.pos}${p.posTier ? ` Tier ${p.posTier}` : ''}${p.posRank ? ` · #${p.posRank}` : ''}${flexStr}${matchTip}`);
   }
   if (flexRank == null) return dash;
-  // In FLEX list but beyond positional rankings depth — fall back to flex rank number
+  // Only in FLEX list — no positional tier/rank: show flex rank alone
   const tip = p.matchup != null ? `${p.pos} Flex #${flexRank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `${p.pos} Flex #${flexRank}`;
-  return chip(`#${flexRank}`, tip);
+  return soloChip(`#${flexRank}`, tip);
 }
 
 // Weekly player row
@@ -4174,6 +4183,9 @@ function buildWeeklyMyTeamSection(lg, data) {
     ${bench.length ? `<div style="margin-top:6px">
       <div class="ls-lc-section-title">Bench${upgradeCount ? ` <span style="color:#22c55e;font-weight:700">(${upgradeCount} upgrade${upgradeCount > 1 ? 's' : ''})</span>` : ''}</div>
       ${benchRows}
+    </div>` : ''}
+    ${!noRankings ? `<div style="margin-top:7px;font-size:9px;color:#374151;line-height:1.6">
+      Chip: <span style="color:#6d28d9">QB</span> tier·rank &nbsp;·&nbsp; <span style="color:#166534">RB</span> <span style="color:#1e40af">WR</span> <span style="color:#92400e">TE</span> pos tier·rank (hover for flex#) &nbsp;·&nbsp; <span style="color:#1e3a5f">DEF</span> tier·rank &nbsp;·&nbsp; <span style="color:#374151">K</span> rank only
     </div>` : ''}
   </div>`;
 
