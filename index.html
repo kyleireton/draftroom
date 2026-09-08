@@ -4320,46 +4320,45 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
   }
 
   // ── Season-long fallback ────────────────────────────────────────────────
-  // Show when the weekly pool is thin and season rankings were uploaded
+  // Always show when season rankings are available; redundancy with weekly is intentional
   let seasonHtml = '';
   const seasonPool = weeklySeasonPlayers.length ? weeklySeasonPlayers
     : (data.csvPlayers || []);
 
-  if (seasonPool.length && (availFlex.length < 3 || availQbs.length < 2)) {
+  if (seasonPool.length) {
     const FLEX_POS = new Set(['RB','WR','TE']);
-    const norm = p => normName(p.name);
 
-    // Exclude already-rostered and already-shown-in-weekly-section players
-    const shownQbNorms  = new Set(availQbs.map(p => p.pid));
-    const shownFlexNorms = new Set(availFlex.map(p => p.pid));
+    // Roster check that handles nickname aliases (e.g. Kenny ↔ Kenneth)
+    const isRostered = key => {
+      if (rosteredNorms.has(key)) return true;
+      const alt = NAME_ALIASES[key];
+      return alt ? rosteredNorms.has(alt) : false;
+    };
 
     const sQbs = seasonPool
-      .filter(p => p.pos === 'QB'
-        && !rosteredNorms.has(norm(p))
-        && !shownQbNorms.has(norm(p)))
+      .filter(p => p.pos === 'QB' && !isRostered(normName(p.name)))
       .sort((a, b) => (a.ov ?? a.adpRank ?? 999) - (b.ov ?? b.adpRank ?? 999))
-      .slice(0, 5);
+      .slice(0, 3);
 
     const sFlex = seasonPool
-      .filter(p => FLEX_POS.has(p.pos)
-        && !rosteredNorms.has(norm(p))
-        && !shownFlexNorms.has(norm(p)))
+      .filter(p => FLEX_POS.has(p.pos) && !isRostered(normName(p.name)))
       .sort((a, b) => (a.ov ?? a.adpRank ?? 999) - (b.ov ?? b.adpRank ?? 999))
-      .slice(0, 5);
+      .slice(0, 6);
 
     const seasonRow = p => {
       const posColor = POS_CHIP_COLOR[p.pos] || '#374151';
       const ov = p.ov ?? p.adpRank;
       const tier = p.tier ?? null;
-      // Outline-style chip to visually distinguish from weekly solid chips
+      // Solid chip at reduced saturation (desaturated version of pos color) to distinguish from weekly
+      const chipBg = posColor + '55'; // ~33% opacity fill
       const chipInner = tier != null && ov != null
-        ? `<span style="padding:2px 4px;font-size:10px;font-weight:800;color:${posColor};opacity:0.9">T${tier}</span><span style="width:1px;background:${posColor};opacity:0.3;align-self:stretch"></span><span style="padding:2px 4px;font-size:10px;font-weight:800;color:${posColor};opacity:0.7">#${ov}</span>`
-        : `<span style="padding:2px 6px;font-size:10px;font-weight:800;color:${posColor}">${ov != null ? '#'+ov : '?'}</span>`;
-      const chip = `<span style="display:inline-flex;align-items:center;border:1px solid ${posColor};border-radius:4px;overflow:hidden;flex-shrink:0;min-width:${tier != null ? 52 : 36}px;opacity:0.85" title="Season rank #${ov ?? '?'}${tier ? ' · Tier '+tier : ''}">${chipInner}</span>`;
+        ? `<span style="padding:2px 5px;font-size:10px;font-weight:800;color:#fff">T${tier}</span><span style="width:1px;background:rgba(255,255,255,0.25);align-self:stretch"></span><span style="padding:2px 5px;font-size:10px;font-weight:800;color:#e2e8f0">#${ov}</span>`
+        : `<span style="padding:2px 6px;font-size:10px;font-weight:800;color:#fff">${ov != null ? '#'+ov : '?'}</span>`;
+      const chip = `<span style="display:inline-flex;align-items:center;background:${chipBg};border:1px solid ${posColor};border-radius:4px;overflow:hidden;flex-shrink:0;min-width:${tier != null ? 52 : 36}px" title="Season rank #${ov ?? '?'}${tier ? ' · Tier '+tier : ''}">${chipInner}</span>`;
       return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #1e2530">
         ${chip}
-        <span style="font-size:11px;color:#64748b;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</span>
-        <span style="font-size:10px;color:#374151">${p.pos}</span>
+        <span style="font-size:11px;color:#cbd5e1;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</span>
+        <span style="font-size:10px;color:#64748b">${p.pos}</span>
       </div>`;
     };
 
@@ -4367,11 +4366,11 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
     const qbSeasonRows   = sQbs.map(seasonRow).join('')   || noSeason;
     const flexSeasonRows = sFlex.map(seasonRow).join('')  || noSeason;
 
-    seasonHtml = `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #1e2530">
-      <div style="font-size:9px;color:#374151;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.05em">Season rankings (ADP) — picked clean fallback</div>
+    seasonHtml = `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #2d3748">
+      <div style="font-size:9px;color:#64748b;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:700">📋 Season rankings (ADP)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        ${availQbs.length < 2 ? `<div><div class="ls-lc-section-title" style="color:#374151">QB</div>${qbSeasonRows}</div>` : '<div></div>'}
-        ${availFlex.length < 3 ? `<div><div class="ls-lc-section-title" style="color:#374151">Flex</div>${flexSeasonRows}</div>` : '<div></div>'}
+        <div><div class="ls-lc-section-title" style="color:#94a3b8">QB</div>${qbSeasonRows}</div>
+        <div><div class="ls-lc-section-title" style="color:#94a3b8">Flex</div>${flexSeasonRows}</div>
       </div>
     </div>`;
   }
