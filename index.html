@@ -931,6 +931,14 @@ body {
 }
 .ls-lc-loading { font-size: 11px; color: #374151; padding: 6px 0; font-style: italic; }
 .ls-lc-divider { height: 1px; background: #2d3748; margin: 8px 0; }
+.ls-upload-btn {
+  background: #4f7ef8; border: none; color: #fff;
+  font-size: 12px; font-weight: 700; padding: 6px 12px;
+  border-radius: 8px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+.ls-upload-btn:hover { background: #3b6de8; }
+.ls-upload-status { font-size: 11px; color: #4b5563; white-space: nowrap; flex-shrink: 0; }
+.ls-upload-status.ok { color: #22c55e; }
 </style>
 </head>
 <body>
@@ -1025,12 +1033,15 @@ body {
 <div id="league-summary-screen" style="display:none">
   <div class="ls-header">
     <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
+    <input type="file" id="ls-rankings-file" accept=".csv" style="display:none" onchange="onSummaryRankingsUpload(event)">
+    <button class="ls-upload-btn" onclick="document.getElementById('ls-rankings-file').click()">↑ Upload Rankings</button>
+    <span class="ls-upload-status" id="ls-upload-status"></span>
     <div style="flex:1;min-width:0">
       <div class="ls-title">All Leagues</div>
       <div class="ls-meta" id="ls-week-label"></div>
     </div>
     <div class="ls-odds-row">
-      <button class="ls-odds-btn" onclick="fetchEspnOdds(true)">🔄 Refresh Odds</button>
+      <button class="ls-odds-btn" onclick="fetchEspnOdds(true)">🔄 Odds</button>
       <span class="ls-odds-status" id="ls-odds-status"></span>
     </div>
   </div>
@@ -3279,6 +3290,41 @@ function buildEnvBar(implied) {
   return `<div class="env-bar-wrap"><div class="env-bar-bg"><div class="env-bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="env-implied" style="color:${color}">${implied}</span></div>`;
 }
 
+// ── Upload rankings CSV and save to ALL leagues at once ──
+function onSummaryRankingsUpload(evt) {
+  const file = evt.target.files?.[0];
+  evt.target.value = '';
+  if (!file) return;
+  const statusEl = document.getElementById('ls-upload-status');
+  if (statusEl) { statusEl.textContent = 'Parsing…'; statusEl.className = 'ls-upload-status'; }
+  const reader = new FileReader();
+  reader.onload = async e => {
+    const csvText = e.target.result;
+    parseCSVText(csvText, async players => {
+      if (!players.length) { if (statusEl) { statusEl.textContent = 'No players found'; } return; }
+      if (!currentUser || !leagueList.length) { if (statusEl) { statusEl.textContent = 'Sign in + load leagues first'; } return; }
+      if (statusEl) { statusEl.textContent = `Saving to ${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}…`; statusEl.className = 'ls-upload-status'; }
+      try {
+        await Promise.all(leagueList.map(lg =>
+          sb.from('league_rankings').upsert({
+            user_id:    currentUser.id,
+            league_id:  lg.league_id,
+            csv_data:   csvText,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'user_id,league_id' })
+        ));
+        if (statusEl) { statusEl.textContent = `✓ ${players.length} players → ${leagueList.length} leagues`; statusEl.className = 'ls-upload-status ok'; }
+        // Clear cache so cards re-render with new rankings
+        allLeaguesCache = {};
+        renderLeagueSummary();
+      } catch(err) {
+        if (statusEl) { statusEl.textContent = 'Save failed: ' + err.message; statusEl.className = 'ls-upload-status'; }
+      }
+    }, true);
+  };
+  reader.readAsText(file);
+}
+
 // ── Resolve my Sleeper user_id (cached across leagues) ──
 async function ensureMySleeperUserId() {
   if (mySleeperUserId) return mySleeperUserId;
@@ -3478,6 +3524,12 @@ function buildLcMyTeam(lg, data) {
   players.forEach(p => { if (p.tier && p.tier <= 3) tc[p.tier]++; });
   const tierHtml = [1,2,3].map(t => tc[t] ? `<span class="ls-tier-chip" style="background:${tierHsl(t)};color:#fff">T${t}×${tc[t]}</span>` : '').join('');
 
+  // Avg rank of ranked starters (excl K)
+  const rankedStarters = starters.filter(p => p.rank != null && p.pos !== 'K');
+  const avgRank = rankedStarters.length
+    ? Math.round(rankedStarters.reduce((s, p) => s + p.rank, 0) / rankedStarters.length)
+    : null;
+
   // Projected total across starters
   const projTotal = starters.reduce((s, p) => s + (p.projPts || 0), 0);
 
@@ -3485,9 +3537,10 @@ function buildLcMyTeam(lg, data) {
   const rows = displayList.map(playerRow).join('');
 
   return `<div class="ls-lc-section">
-    <div class="ls-lc-section-title" style="display:flex;align-items:center;gap:6px">
+    <div class="ls-lc-section-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
       <span>★ ${escHtml(teamName)}</span>
       ${tierHtml}
+      ${avgRank != null ? `<span style="font-size:10px;font-weight:600;color:#64748b">avg rk #${avgRank}</span>` : ''}
       ${projTotal > 0 ? `<span style="font-size:10px;color:#4b5563;margin-left:auto">proj ${projTotal.toFixed(1)}</span>` : ''}
     </div>
     ${rows}
@@ -3515,7 +3568,7 @@ function playerRow(p) {
   // Left badge: colored tier chip if tiered, else rank in bright text, else dot
   let badge;
   if (p.tier != null) {
-    badge = `<span style="font-size:10px;font-weight:800;color:#fff;background:${tierHsl(p.tier)};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0">T${p.tier}</span>`;
+    badge = `<span style="font-size:10px;font-weight:800;color:#fff;background:${posTextColor(p.pos)};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0">T${p.tier}</span>`;
   } else if (p.rank != null) {
     badge = `<span class="ls-p-rank" style="color:#cbd5e1;font-weight:700">#${p.rank}</span>`;
   } else {
