@@ -1030,9 +1030,7 @@ body {
       <div class="ls-meta" id="ls-week-label"></div>
     </div>
     <div class="ls-odds-row">
-      <input class="ls-odds-input" id="ls-odds-key" placeholder="Odds API key (the-odds-api.com, free)" autocomplete="off"
-             onkeydown="if(event.key==='Enter')fetchAndCacheOdds()">
-      <button class="ls-odds-btn" onclick="fetchAndCacheOdds()">⚡ Load Odds</button>
+      <button class="ls-odds-btn" onclick="fetchEspnOdds(true)">🔄 Refresh Odds</button>
       <span class="ls-odds-status" id="ls-odds-status"></span>
     </div>
   </div>
@@ -3219,6 +3217,53 @@ async function fetchAndCacheOdds() {
 
 function getImplied(teamAbbr) { return impliedTotals[teamAbbr] ?? null; }
 
+// ESPN abbreviation → Sleeper abbreviation (only exceptions listed; rest match)
+const ESPN_TO_SLEEPER = { 'LAR':'LA', 'WSH':'WAS' };
+
+async function fetchEspnOdds(force = false) {
+  const statusEl = document.getElementById('ls-odds-status');
+  // Use cache if fresh and not forced
+  if (!force && oddsLastFetched && Date.now() - oddsLastFetched < 6 * 3600 * 1000) {
+    if (statusEl) { statusEl.textContent = oddsStatusText(); statusEl.className = 'ls-odds-status fresh'; }
+    return;
+  }
+  if (statusEl) { statusEl.textContent = 'Loading odds…'; statusEl.className = 'ls-odds-status'; }
+  try {
+    const res  = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard');
+    const json = await res.json();
+    const totals = {};
+    (json.events || []).forEach(ev => {
+      const comp = ev.competitions?.[0];
+      if (!comp) return;
+      const odds = comp.odds?.[0];
+      if (!odds?.overUnder) return;
+      const total    = odds.overUnder;
+      const homeComp = comp.competitors?.find(c => c.homeAway === 'home');
+      const awayComp = comp.competitors?.find(c => c.homeAway === 'away');
+      if (!homeComp || !awayComp) return;
+      const toSlp    = abbr => ESPN_TO_SLEEPER[abbr] || abbr;
+      const homeAbbr = toSlp(homeComp.team.abbreviation);
+      const awayAbbr = toSlp(awayComp.team.abbreviation);
+      // homeTeamOdds.spread is negative when home team is favored
+      const homeSpread = odds.homeTeamOdds?.spread ?? (-(odds.spread ?? 0));
+      totals[homeAbbr] = Math.round(((total - homeSpread) / 2) * 10) / 10;
+      totals[awayAbbr] = Math.round(((total + homeSpread) / 2) * 10) / 10;
+    });
+    impliedTotals   = totals;
+    oddsLastFetched = Date.now();
+    localStorage.setItem('dr_implied_totals', JSON.stringify({ ts: oddsLastFetched, data: totals }));
+    const gameCount = Math.round(Object.keys(totals).length / 2);
+    if (statusEl) {
+      statusEl.textContent = gameCount > 0 ? `✓ ${gameCount} games` : 'No odds yet (preseason)';
+      statusEl.className   = 'ls-odds-status' + (gameCount > 0 ? ' fresh' : '');
+    }
+    // Re-render cards with freshly populated ENV data
+    renderLeagueSummary();
+  } catch(e) {
+    if (statusEl) { statusEl.textContent = 'Odds unavailable'; statusEl.className = 'ls-odds-status'; }
+  }
+}
+
 function envColor(v) {
   if (!v) return '#374151';
   if (v >= 25) return '#22c55e';
@@ -3251,16 +3296,14 @@ function openLeagueSummary() {
   if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
   // Always clear league cache so fresh projections + fixed code path runs every time
   allLeaguesCache = {};
-  const savedKey = localStorage.getItem('dr_odds_api_key');
-  const ki = document.getElementById('ls-odds-key');
-  if (savedKey && ki && !ki.value) ki.value = savedKey;
   const statusEl = document.getElementById('ls-odds-status');
-  if (oddsLastFetched) {
+  const sixHours = 6 * 3600 * 1000;
+  if (oddsLastFetched && Date.now() - oddsLastFetched < sixHours) {
+    // Use cached odds — still fresh
     if (statusEl) { statusEl.textContent = oddsStatusText(); statusEl.className = 'ls-odds-status fresh'; }
-  } else if (savedKey) {
-    fetchAndCacheOdds();
   } else {
-    if (statusEl) { statusEl.textContent = 'Enter key above for ENV colors'; statusEl.className = 'ls-odds-status'; }
+    // Auto-fetch from ESPN (free, no key)
+    fetchEspnOdds(false);
   }
   const weekEl = document.getElementById('ls-week-label');
   if (weekEl) weekEl.textContent = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}`;
@@ -3471,7 +3514,7 @@ function playerRow(p) {
   const dn = displayName(p.name);
   // Left badge: colored tier chip if tiered, else rank in bright text, else dot
   let badge;
-  if (p.tier != null && p.tier <= 5) {
+  if (p.tier != null) {
     badge = `<span style="font-size:10px;font-weight:800;color:#fff;background:${tierHsl(p.tier)};border-radius:4px;padding:1px 5px;min-width:22px;text-align:center;flex-shrink:0">T${p.tier}</span>`;
   } else if (p.rank != null) {
     badge = `<span class="ls-p-rank" style="color:#cbd5e1;font-weight:700">#${p.rank}</span>`;
@@ -3514,7 +3557,7 @@ function buildLcWaiver(data) {
     const sInfo = sleeperByName[norm] || (NAME_ALIASES[norm] ? sleeperByName[NAME_ALIASES[norm]] : null);
     if (isRosteredW(p.name, sInfo)) return null;
     const pid = sInfo?.id;
-    return { name: p.name, pos: p.pos || '?', rank: p.ov, projPts: pid ? (projections[pid] ?? null) : null, team: sInfo?.team || '' };
+    return { name: p.name, pos: p.pos || '?', rank: p.ov, tier: p.tier ?? null, projPts: pid ? (projections[pid] ?? null) : null, team: sInfo?.team || '' };
   }).filter(Boolean);
 
   const topQB   = avail.filter(p => p.pos === 'QB').slice(0, 2);
