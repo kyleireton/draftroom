@@ -952,6 +952,14 @@ body {
 .ws-tab.active { background:#4f7ef8; color:#fff; }
 .ws-tab:hover:not(.active) { color:#94a3b8; }
 .ws-upgrade-row { background:rgba(34,197,94,0.06) !important; }
+.ws-info-wrap { position:relative; display:inline-flex; }
+.ws-info-btn { background:none; border:1px solid #2d3748; color:#4b5563; font-size:11px; font-weight:700; width:22px; height:22px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:color 0.12s,border-color 0.12s; }
+.ws-info-btn:hover { color:#94a3b8; border-color:#4b5563; }
+.ws-info-tip { display:none; position:absolute; top:28px; right:0; width:240px; background:#1a2233; border:1px solid #2d3748; border-radius:8px; padding:10px 12px; font-size:11px; line-height:1.55; color:#94a3b8; z-index:999; box-shadow:0 4px 16px rgba(0,0,0,0.5); }
+.ws-info-tip b { color:#e2e8f0; }
+.ws-info-tip hr { border:none; border-top:1px solid #2d3748; margin:6px 0; }
+.ws-info-wrap:hover .ws-info-tip,
+.ws-info-wrap:focus-within .ws-info-tip { display:block; }
 </style>
 </head>
 <body>
@@ -1074,9 +1082,23 @@ body {
       <div class="ls-title" id="ws-title">Week 1 · Start/Sit</div>
       <div class="ls-meta"  id="ws-meta"></div>
     </div>
-    <div class="ws-view-toggle">
-      <button class="ws-tab" onclick="openLeagueSummary()">Season</button>
-      <button class="ws-tab active" id="ws-week-tab">Week 1</button>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+      <div class="ws-view-toggle">
+        <button class="ws-tab" onclick="openLeagueSummary()">Season</button>
+        <button class="ws-tab active" id="ws-week-tab">Week 1</button>
+      </div>
+      <div class="ws-info-wrap">
+        <button class="ws-info-btn" tabindex="0">ℹ</button>
+        <div class="ws-info-tip">
+          <b>How rankings work</b>
+          <hr>
+          <b>QB chip</b> — weekly tier (T1 = elite, T6 = streaming). Color: purple.<br>
+          <b>Flex chip</b> — overall flex rank across all RB/WR/TE (#1 = best). Color by position: <span style="color:#166534">■</span> RB <span style="color:#1e40af">■</span> WR <span style="color:#92400e">■</span> TE.<br>
+          <hr>
+          <b>Slot logic</b>: positional slots (RB, WR, TE) are filled first by the best available at that position, then FLEX slots by overall flex rank among the remainder.<br>
+          <b>⬆ START</b> badge = bench/waiver player ranked better than a replaceable starter in a matching slot.
+        </div>
+      </div>
     </div>
   </div>
   <div class="ls-upload-bar">
@@ -3775,6 +3797,10 @@ function parseWeeklyFlexCsv(text, callback) {
       const key = normName(name); if (!key) return;
       map[key] = { rank: parseInt(g('Rank','rank'))||999, name, pos: g('Pos','Position','pos').toUpperCase(), team: g('Team','team').toUpperCase(), opp: g('Opponent','Opp','opp').toUpperCase(), total: parseFloat(g('Total','total'))||null, matchup: parseInt(g('Matchup','matchup'))||null };
     });
+    // Compute per-position rank (posRank) within each position group
+    const byPos = {};
+    Object.values(map).forEach(e => { if (!byPos[e.pos]) byPos[e.pos] = []; byPos[e.pos].push(e); });
+    Object.values(byPos).forEach(grp => { grp.sort((a, b) => a.rank - b.rank); grp.forEach((e, i) => { e.posRank = i + 1; }); });
     callback(map);
   }});
 }
@@ -3886,7 +3912,7 @@ function buildWeeklyRankChip(p) {
   }
   const rank = p.flexRank;
   if (rank == null) return `<span style="min-width:32px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
-  const tip = p.matchup != null ? `${p.pos} #${rank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `${p.pos} #${rank}`;
+  const tip = p.matchup != null ? `${p.pos} Flex #${rank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `${p.pos} Flex #${rank}`;
   return `<span style="font-size:10px;font-weight:800;color:#fff;background:${posBg};border-radius:4px;padding:1px 5px;min-width:30px;text-align:center;flex-shrink:0" title="${tip}">#${rank}</span>`;
 }
 
@@ -3940,15 +3966,15 @@ function buildWeeklyMyTeamSection(lg, data) {
     const sInfo = norm ? sleeperByName[norm] : null;
     const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
     const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
-    let flexRank = null, qbRank = null, qbTier = null, opp = null, total = null, matchup = null;
+    let flexRank = null, posRank = null, qbRank = null, qbTier = null, opp = null, total = null, matchup = null;
     if (pos === 'QB') {
       const e = lookupWeekly(name, norm, weeklyQbMap);
       if (e) { qbRank = e.rank; qbTier = e.tier; opp = e.opp; total = e.total; matchup = e.matchup; }
     } else {
       const e = lookupWeekly(name, norm, weeklyFlexMap);
-      if (e) { flexRank = e.rank; opp = e.opp; total = e.total; matchup = e.matchup; }
+      if (e) { flexRank = e.rank; posRank = e.posRank ?? null; opp = e.opp; total = e.total; matchup = e.matchup; }
     }
-    return { pid, name, pos, flexRank, qbRank, qbTier, opp, total, matchup, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
+    return { pid, name, pos, flexRank, posRank, qbRank, qbTier, opp, total, matchup, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
   });
 
   const rosterPositions = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
@@ -4012,7 +4038,7 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
   const availFlex = Object.entries(weeklyFlexMap)
     .filter(([norm, e]) => !rosteredNorms.has(norm) && ['RB','WR','TE'].includes(e.pos))
     .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
-    .map(([norm, e]) => ({ pid: norm, name: e.name, pos: e.pos, flexRank: e.rank, qbRank: null, qbTier: null, opp: e.opp, total: e.total, matchup: e.matchup, projPts: null }));
+    .map(([norm, e]) => ({ pid: norm, name: e.name, pos: e.pos, flexRank: e.rank, posRank: e.posRank ?? null, qbRank: null, qbTier: null, opp: e.opp, total: e.total, matchup: e.matchup, projPts: null }));
 
   const qbRows   = availQbs.map(p  => weeklyPlayerRow(p, (p.qbRank   ?? 9999) < worstQbRank)).join('')
                    || '<div class="ls-lc-loading">No QBs available</div>';
