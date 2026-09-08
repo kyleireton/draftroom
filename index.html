@@ -3293,6 +3293,9 @@ async function fetchAndCacheOdds() {
 
 // ESPN abbreviation → Sleeper abbreviation (only exceptions listed; rest match)
 const ESPN_TO_SLEEPER  = { 'LAR':'LA', 'WSH':'WAS' };
+// Abbreviations used by CSV/ESPN sources that differ from Sleeper's canonical team IDs
+const ALT_TO_SLEEPER_ABBR = { 'JAX':'JAC', 'LAR':'LA', 'WSH':'WAS', 'OAK':'LV', 'SD':'LAC', 'STL':'LAR', 'GBP':'GB', 'KCC':'KC' };
+function toSleeperAbbr(abbr) { return ALT_TO_SLEEPER_ABBR[abbr] || abbr; }
 // Reverse map: Sleeper abbr → ESPN abbr (for fallback lookup in getImplied)
 const SLEEPER_TO_ESPN  = { 'LA':'LAR', 'WAS':'WSH' };
 
@@ -3861,7 +3864,8 @@ function parseWeeklyAllCsv(text, callback) {
             total: parseFloat(g(r,'TE Total'))||null, matchup: parseInt(g(r,'TE Matchup'))||null };
       }
       const defTeam = g(r,'DEF Team'); if (defTeam) {
-        const abbr = NFL_TEAM_FULL_TO_ABBR[defTeam] || defTeam.toUpperCase();
+        const raw  = NFL_TEAM_FULL_TO_ABBR[defTeam] || defTeam.toUpperCase();
+        const abbr = toSleeperAbbr(raw);   // normalize JAX→JAC, WSH→WAS, etc.
         defMap[abbr] = { rank: parseInt(g(r,'DEF Rank'))||32, tier: parseInt(g(r,'DEF Tier'))||5,
           name: defTeam, opp: g(r,'DEF Opponent').toUpperCase(), spread: parseFloat(g(r,'DEF Spread'))||null };
       }
@@ -4110,8 +4114,9 @@ function buildWeeklyMyTeamSection(lg, data) {
       const e = lookupWeekly(name, norm, weeklyQbMap);
       if (e) { qbRank = e.rank; qbTier = e.tier; opp = e.opp; total = e.total; matchup = e.matchup; }
     } else if (pos === 'DEF') {
-      const teamAbbr = sInfo?.team || _sleeperRawPlayers?.[pid]?.team || pid;
-      const e = weeklyDefMap[teamAbbr] ?? weeklyDefMap[ESPN_TO_SLEEPER[teamAbbr]] ?? null;
+      const rawAbbr  = sInfo?.team || _sleeperRawPlayers?.[pid]?.team || pid;
+      const teamAbbr = toSleeperAbbr(rawAbbr);  // normalize JAX→JAC etc.
+      const e = weeklyDefMap[teamAbbr] ?? weeklyDefMap[toSleeperAbbr(pid)] ?? null;
       if (e) { defRank = e.rank; defTier = e.tier; defSpread = e.spread; opp = e.opp; }
     } else if (pos === 'K') {
       const e = lookupWeekly(name, norm, weeklyKMap);
@@ -4184,11 +4189,14 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
   const rosteredDefAbbrs = new Set();
   (rosters || []).forEach(r => (r.players || []).forEach(pid => {
     const n = sleeperById[pid]; if (n) rosteredNorms.add(n);
-    // Sleeper stores team defenses as team-abbr player IDs (e.g. "JAC"),
-    // which are often absent from the player DB — so check weeklyDefMap directly.
-    if (weeklyDefMap[pid]) rosteredDefAbbrs.add(pid);
+    // Sleeper stores team defenses as team-abbr player IDs (e.g. "JAC").
+    // Normalize to Sleeper canonical abbr before checking weeklyDefMap.
+    const slpAbbr = toSleeperAbbr(pid);
+    if (weeklyDefMap[slpAbbr]) rosteredDefAbbrs.add(slpAbbr);
     // Also catch via player DB position field if present
-    if (_sleeperRawPlayers?.[pid]?.position === 'DEF') rosteredDefAbbrs.add(_sleeperRawPlayers[pid]?.team || pid);
+    if (_sleeperRawPlayers?.[pid]?.position === 'DEF') {
+      rosteredDefAbbrs.add(toSleeperAbbr(_sleeperRawPlayers[pid]?.team || pid));
+    }
   }));
 
   const noRankPlayer = (label) => `<div class="ls-lc-loading">${label}</div>`;
