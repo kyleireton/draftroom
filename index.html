@@ -107,6 +107,9 @@ body {
 }
 .ld-back { background: none; border: none; color: #94a3b8; font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; margin-right: 4px; }
 .ld-back:hover { color: #f1f5f9; }
+.nav-pill { background:#1a2233; border:1px solid #2d3748; border-radius:6px; color:#f1f5f9; font-size:12px; font-weight:700; padding:5px 12px; cursor:pointer; transition:background 0.12s,border-color 0.12s; white-space:nowrap; }
+.nav-pill:hover { background:#2d3748; border-color:#4b5563; }
+.nav-pill.accent { background:#1e3a5f; border-color:#4f7ef8; color:#fff; }
 .ld-league-name { font-size: 15px; font-weight: 700; color: #f1f5f9; }
 .ld-meta { font-size: 11px; color: #374151; }
 .ld-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; }
@@ -952,6 +955,9 @@ body {
 .ws-tab.active { background:#4f7ef8; color:#fff; }
 .ws-tab:hover:not(.active) { color:#94a3b8; }
 .ws-upgrade-row { background:rgba(34,197,94,0.06) !important; }
+.bb-toggle { display:flex; align-items:center; gap:5px; font-size:11px; color:#4b5563; cursor:pointer; user-select:none; flex-shrink:0; }
+.bb-toggle input[type=checkbox] { accent-color:#4f7ef8; width:13px; height:13px; cursor:pointer; }
+.bb-toggle:hover { color:#94a3b8; }
 .ws-info-wrap { position:relative; display:inline-flex; }
 .ws-info-btn { background:none; border:1px solid #2d3748; color:#4b5563; font-size:11px; font-weight:700; width:22px; height:22px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:color 0.12s,border-color 0.12s; }
 .ws-info-btn:hover { color:#94a3b8; border-color:#4b5563; }
@@ -991,7 +997,7 @@ body {
   <div class="leagues-header">
     <button class="leagues-back" onclick="showScreen('landing')">← Home</button>
     <div class="leagues-title">My Leagues</div>
-    <button class="leagues-back" onclick="openLeagueSummary()" style="margin-left:auto;font-size:12px">📊 All Summary</button>
+    <button class="leagues-back" onclick="openWeeklySummary()" style="margin-left:auto;font-size:12px">Start/Sit →</button>
   </div>
   <div class="leagues-body">
     <!-- Username entry card — shown only if no username saved -->
@@ -1015,9 +1021,9 @@ body {
 <!-- ── LEAGUE DETAIL SCREEN ── -->
 <div id="league-detail-screen">
   <div class="ld-header">
-    <button class="ld-back" onclick="leagueList.length ? openLeagueSummary() : showScreen('leagues')">← Leagues</button>
-    <button class="ld-back" onclick="goToDraftFromLeague()" style="margin-left:8px">Draft Room →</button>
-    <button class="ld-back" onclick="openLeagueSummary()" style="margin-left:8px">📊 Summary</button>
+    <button class="ld-back" onclick="leagueList.length ? openWeeklySummary() : showScreen('leagues')">← Back</button>
+    <button class="nav-pill accent" onclick="goToDraftFromLeague()" style="margin-left:8px">Draft Room →</button>
+    <button class="nav-pill" onclick="openLeagueSummary()" style="margin-left:6px">League Season →</button>
     <div>
       <div class="ld-league-name" id="ld-league-name">—</div>
       <div class="ld-meta" id="ld-meta"></div>
@@ -1025,7 +1031,7 @@ body {
     <div class="ld-controls">
       <span id="ld-rankings-status" style="font-size:11px;color:#374151"></span>
       <button class="ld-upload-btn" onclick="document.getElementById('league-csv-input').click()">↑ Update rankings</button>
-      <input type="file" id="league-csv-input" accept=".csv" onchange="onLeagueCsvUpload(event)">
+      <input type="file" id="league-csv-input" accept=".csv,text/csv,text/plain" onchange="onLeagueCsvUpload(event)">
     </div>
   </div>
   <div class="ld-body">
@@ -1053,19 +1059,20 @@ body {
 <!-- ── LEAGUE SUMMARY SCREEN ── -->
 <div id="league-summary-screen" style="display:none">
   <div class="ls-header">
-    <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
-    <input type="file" id="ls-rankings-file" accept=".csv" style="display:none" onchange="onSummaryRankingsUpload(event)">
+    <button class="ld-back" onclick="openWeeklySummary()">← Start/Sit</button>
+    <input type="file" id="ls-rankings-file" accept=".csv,text/csv,text/plain" style="display:none" onchange="onSummaryRankingsUpload(event)">
     <div style="flex:1;min-width:0">
-      <div class="ls-title">All Leagues</div>
+      <div class="ls-title">League Season</div>
       <div class="ls-meta" id="ls-week-label"></div>
     </div>
+    <button class="nav-pill accent" onclick="openWeeklySummary()" style="flex-shrink:0">Start/Sit →</button>
   </div>
   <div class="ls-upload-bar">
     <button class="ls-upload-btn" onclick="document.getElementById('ls-rankings-file').click()">↑ Upload Rankings CSV</button>
     <button class="ls-odds-btn" onclick="fetchEspnOdds(true)" style="margin-left:4px">🔄 Refresh Odds</button>
+    <label class="bb-toggle" style="margin-left:auto"><input type="checkbox" id="ls-hide-bb" onchange="toggleHideBestBall(this.checked)"> Hide Best Ball</label>
     <span class="ls-odds-status" id="ls-odds-status"></span>
     <span class="ls-upload-status" id="ls-upload-status"></span>
-    <button class="ws-tab" onclick="openWeeklySummary()" style="margin-left:auto;border:1px solid #2d3748">This Week →</button>
   </div>
   <div class="ls-body">
     <div id="ls-leagues-list"></div>
@@ -1076,15 +1083,15 @@ body {
 <div id="weekly-summary-screen" style="display:none">
   <div class="ls-header">
     <button class="ld-back" onclick="showScreen('leagues')">← Leagues</button>
-    <input type="file" id="ws-all-file" accept=".csv" style="display:none" onchange="onWeeklyAllUpload(event)">
+    <input type="file" id="ws-all-file" accept=".csv,text/csv,text/plain" style="display:none" onchange="onWeeklyAllUpload(event)">
     <div style="flex:1;min-width:0">
       <div class="ls-title" id="ws-title">Week 1 · Start/Sit</div>
       <div class="ls-meta"  id="ws-meta"></div>
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
       <div class="ws-view-toggle">
-        <button class="ws-tab" onclick="openLeagueSummary()">Season</button>
-        <button class="ws-tab active" id="ws-week-tab">Week 1</button>
+        <button class="ws-tab" id="ws-week-tab" style="cursor:default" disabled>Start/Sit</button>
+        <button class="ws-tab" onclick="openLeagueSummary()">League Season →</button>
       </div>
       <div class="ws-info-wrap">
         <button class="ws-info-btn" tabindex="0">ℹ</button>
@@ -1104,6 +1111,7 @@ body {
   <div class="ls-upload-bar">
     <button class="ls-upload-btn" onclick="document.getElementById('ws-all-file').click()">↑ Upload Rankings</button>
     <span class="ls-upload-status" id="ws-upload-status">Upload weekly rankings CSV to see recommendations</span>
+    <label class="bb-toggle" style="margin-left:auto"><input type="checkbox" id="ws-hide-bb" onchange="toggleHideBestBall(this.checked)"> Hide Best Ball</label>
   </div>
   <div class="ls-body">
     <div id="ws-leagues-list"></div>
@@ -2567,8 +2575,8 @@ async function fetchAndRenderLeagues(username) {
     loadEl.style.display = 'none';
     if (!leagueList.length) { emptyEl.style.display = ''; return; }
 
-    // Go straight to summary — it's the default leagues view
-    openLeagueSummary();
+    // Default view is weekly start/sit
+    openWeeklySummary();
   } catch(e) {
     loadEl.style.display = 'none';
     emptyEl.textContent  = 'Could not load leagues: ' + e.message;
@@ -3414,6 +3422,7 @@ async function ensureMySleeperUserId() {
 // ── Open the all-leagues summary screen ──
 function openLeagueSummary() {
   if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
+  const lsEl = document.getElementById('ls-hide-bb'); if (lsEl) lsEl.checked = hideBestBall;
   // Always clear league cache so fresh projections + fixed code path runs every time
   allLeaguesCache = {};
   const statusEl = document.getElementById('ls-odds-status');
@@ -3437,8 +3446,10 @@ function renderLeagueSummary() {
   if (!list) return;
   if (!leagueList.length) { list.innerHTML = '<div class="ls-lc-loading">No leagues found. Connect your Sleeper account on the Leagues screen.</div>'; return; }
 
-  // Alphabetical sort
-  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  // Alphabetical sort, optionally hiding best ball leagues
+  const sorted = [...leagueList]
+    .filter(lg => !hideBestBall || !lg.settings?.best_ball)
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   // Skeleton pass: render all league cards with loading state immediately
   list.innerHTML = sorted.map(lg => {
@@ -3734,6 +3745,16 @@ let weeklyKMap       = {};  // normName → {rank,name,team,projection,opp}
 let weeklyFlexMap    = {};  // normName → {rank,pos,name,team,opp,total,matchup}
 let weeklyNflWeek    = null;
 let weeklyHasRankings = false;
+let hideBestBall = (() => { try { return localStorage.getItem('dr_hide_bb') === '1'; } catch(_) { return false; } })();
+
+function toggleHideBestBall(val) {
+  hideBestBall = val;
+  try { localStorage.setItem('dr_hide_bb', val ? '1' : '0'); } catch(_) {}
+  // Sync both checkboxes
+  ['ls-hide-bb','ws-hide-bb'].forEach(id => { const el = document.getElementById(id); if (el) el.checked = val; });
+  renderLeagueSummary();
+  renderWeeklySummary();
+}
 
 // Persist/restore from localStorage
 (function loadWeeklyCached() {
@@ -4208,6 +4229,7 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
 async function openWeeklySummary() {
   if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
   showScreen('weekly-summary');
+  const wsEl = document.getElementById('ws-hide-bb'); if (wsEl) wsEl.checked = hideBestBall;
   if (!weeklyNflWeek) {
     try { const s = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json()); weeklyNflWeek = s?.display_week || s?.week || 1; }
     catch(_) { weeklyNflWeek = 1; }
@@ -4217,7 +4239,7 @@ async function openWeeklySummary() {
   const tabEl   = document.getElementById('ws-week-tab');
   if (titleEl) titleEl.textContent = `Week ${weeklyNflWeek} · Start/Sit`;
   if (metaEl)  metaEl.textContent  = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}`;
-  if (tabEl)   tabEl.textContent   = `Week ${weeklyNflWeek}`;
+  if (tabEl)   { tabEl.textContent = `Wk ${weeklyNflWeek} Start/Sit`; tabEl.classList.add('active'); }
   updateWeeklyUploadStatus();
   renderWeeklySummary();
 }
@@ -4225,7 +4247,9 @@ async function openWeeklySummary() {
 function renderWeeklySummary() {
   const list = document.getElementById('ws-leagues-list'); if (!list) return;
   if (!leagueList.length) { list.innerHTML = '<div class="ls-lc-loading">No leagues found.</div>'; return; }
-  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = [...leagueList]
+    .filter(lg => !hideBestBall || !lg.settings?.best_ball)
+    .sort((a, b) => a.name.localeCompare(b.name));
   list.innerHTML = sorted.map(lg => buildWeeklyLeagueCardHtml(lg, null, true)).join('');
   ensureMySleeperUserId().then(myUid => {
     ensureSleeperDb().then(() => {
