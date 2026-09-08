@@ -704,8 +704,8 @@ body {
 
 /* ── AUTH BAR ── */
 .auth-bar {
-  position: fixed; top: 14px; right: 18px;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  position: fixed; top: 8px; right: 12px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
   z-index: 200;
 }
 .auth-btn-row { display: flex; align-items: center; gap: 8px; }
@@ -846,7 +846,7 @@ body {
 .ls-header {
   position: sticky; top: 0; z-index: 10;
   background: #0d1117; border-bottom: 1px solid #1e2530;
-  padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 235px 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
 }
 .ls-title { font-size: 16px; font-weight: 700; color: #f1f5f9; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ls-meta  { font-size: 11px; color: #4b5563; }
@@ -898,6 +898,8 @@ body {
   .ls-waiver-cols { grid-template-columns: 1fr; }
   .ls-team-grid   { grid-template-columns: 1fr; }
   .ls-odds-input  { width: 140px; }
+  /* Email box hidden on mobile; only auth chips remain (~160px) */
+  .ls-header { padding-right: 165px; }
 }
 
 /* ── Per-league summary cards ── */
