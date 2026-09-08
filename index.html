@@ -955,8 +955,8 @@ body {
 .ws-tab.active { background:#4f7ef8; color:#fff; }
 .ws-tab:hover:not(.active) { color:#94a3b8; }
 .ws-upgrade-row { background:rgba(34,197,94,0.06) !important; }
-.lc-collapse-btn { background:none; border:none; color:#4b5563; font-size:17px; font-weight:700; line-height:1; cursor:pointer; padding:0 2px; flex-shrink:0; transition:color 0.12s; }
-.lc-collapse-btn:hover { color:#f1f5f9; }
+.lc-collapse-btn { background:#1e2530; border:1px solid #2d3748; border-radius:5px; color:#94a3b8; font-size:13px; font-weight:700; line-height:1; cursor:pointer; padding:3px 8px; flex-shrink:0; transition:background 0.12s,color 0.12s; }
+.lc-collapse-btn:hover { background:#2d3748; color:#f1f5f9; }
 .ws-info-wrap { position:relative; display:inline-flex; }
 .ws-info-btn { background:none; border:1px solid #2d3748; color:#4b5563; font-size:11px; font-weight:700; width:22px; height:22px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:color 0.12s,border-color 0.12s; }
 .ws-info-btn:hover { color:#94a3b8; border-color:#4b5563; }
@@ -3536,7 +3536,7 @@ function buildLeagueCardHtml(lg, data, isLoading) {
   const meta    = `${lg.total_rosters || '?'}-team · ${scoring}`;
   const lid     = lg.league_id;
   const collapsed = collapsedLeagues.has(lid);
-  const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Expand' : 'Collapse'}">${collapsed ? '+' : '−'}</button>`;
+  const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Show league' : 'Hide league'}">${collapsed ? '▶ Show' : '▼ Hide'}</button>`;
 
   let body = '';
   if (!collapsed) {
@@ -3761,9 +3761,8 @@ function toggleLeagueCollapse(leagueId) {
   if (!lg) return;
   const data = allLeaguesCache[leagueId] || null;
   const tmp  = document.createElement('div');
-  // Detect which screen is active by checking parent list id
-  const inWeekly = !!card.closest('#ws-leagues-list') ||
-                   document.getElementById('weekly-summary')?.style.display !== 'none';
+  // Detect context by which list the card lives in
+  const inWeekly = !!card.closest('#ws-leagues-list');
   tmp.innerHTML = inWeekly
     ? buildWeeklyLeagueCardHtml(lg, data, !data?.loaded)
     : buildLeagueCardHtml(lg, data, !data?.loaded);
@@ -4073,7 +4072,7 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
   const meta      = [(lg.settings?.num_teams || ''), lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std'].filter(Boolean).join('-team · ');
   const lid       = lg.league_id;
   const collapsed = collapsedLeagues.has(lid);
-  const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Expand' : 'Collapse'}">${collapsed ? '+' : '−'}</button>`;
+  const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Show league' : 'Hide league'}">${collapsed ? '▶ Show' : '▼ Hide'}</button>`;
   const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span><span class="ls-lc-meta">${meta}</span>${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
 
   if (collapsed) return `<div class="ls-league-card" data-lid="${lid}">${hdr}</div>`;
