@@ -4261,13 +4261,21 @@ function buildWeeklyMyTeamSection(lg, data) {
     });
   }
 
-  // Sort bench: weekly-ranked → season-only → unranked (all ascending by rank)
+  // Sort bench: flex-ranked → pos-only-ranked (QB/TE/K/DEF/RB-WR-TE without flex) → season → unranked
   bench.sort((a, b) => {
-    const aW = a.flexRank ?? a.posRank ?? a.qbRank ?? a.defRank ?? a.kRank;
-    const bW = b.flexRank ?? b.posRank ?? b.qbRank ?? b.defRank ?? b.kRank;
-    if (aW != null && bW != null) return aW - bW;
-    if (aW != null) return -1;
-    if (bW != null) return 1;
+    const aFlex = a.flexRank ?? a.qbRank ?? a.defRank ?? a.kRank; // "slot" rank
+    const bFlex = b.flexRank ?? b.qbRank ?? b.defRank ?? b.kRank;
+    const aPos  = a.posRank; // positional-only (no flex slot rank)
+    const bPos  = b.posRank;
+    // Tier 1: has a slot rank (flex/QB/DEF/K)
+    if (aFlex != null && bFlex != null) return aFlex - bFlex;
+    if (aFlex != null) return -1;
+    if (bFlex != null) return 1;
+    // Tier 2: positional rank only (e.g. TE#12, WR#50 outside flex map)
+    if (aPos != null && bPos != null) return aPos - bPos;
+    if (aPos != null) return -1;
+    if (bPos != null) return 1;
+    // Tier 3: season ADP / unranked
     return (a.seasonOv ?? Infinity) - (b.seasonOv ?? Infinity);
   });
 
