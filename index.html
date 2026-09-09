@@ -4114,9 +4114,9 @@ function buildWeeklyRankChip(p) {
     const tip = `Flex #${flexRank}${posTip}${matchTip}`;
     return soloChip(`#${flexRank}`, tip);
   }
-  // Has positional rank only (not in flex map) — show pos rank as fallback
+  // Has positional rank only (not in flex map) — show "POS#N" explicitly
   const tip = `${p.pos}${p.posTier ? ` T${p.posTier}` : ''} #${p.posRank}${matchTip}`;
-  return soloChip(`#${p.posRank}`, tip);
+  return soloChip(`${p.pos}#${p.posRank}`, tip);
 }
 
 // Weekly player row
@@ -4252,7 +4252,7 @@ function buildWeeklyMyTeamSection(lg, data) {
       if (alt && !seasonByNorm[alt]) seasonByNorm[alt] = val;
     });
     bench.forEach(p => {
-      const hasWeekly = p.flexRank != null || p.qbRank != null || p.defRank != null || p.kRank != null;
+      const hasWeekly = p.flexRank != null || p.posRank != null || p.qbRank != null || p.defRank != null || p.kRank != null;
       if (!hasWeekly) {
         const key = normName(p.name);
         const se = seasonByNorm[key] ?? (NAME_ALIASES[key] ? seasonByNorm[NAME_ALIASES[key]] : null);
@@ -4263,8 +4263,8 @@ function buildWeeklyMyTeamSection(lg, data) {
 
   // Sort bench: weekly-ranked → season-only → unranked (all ascending by rank)
   bench.sort((a, b) => {
-    const aW = a.flexRank ?? a.qbRank ?? a.defRank ?? a.kRank;
-    const bW = b.flexRank ?? b.qbRank ?? b.defRank ?? b.kRank;
+    const aW = a.flexRank ?? a.posRank ?? a.qbRank ?? a.defRank ?? a.kRank;
+    const bW = b.flexRank ?? b.posRank ?? b.qbRank ?? b.defRank ?? b.kRank;
     if (aW != null && bW != null) return aW - bW;
     if (aW != null) return -1;
     if (bW != null) return 1;
@@ -4273,7 +4273,7 @@ function buildWeeklyMyTeamSection(lg, data) {
 
   // Split bench into weekly-ranked vs season-only/unranked
   bench.forEach(p => {
-    const hasWeekly = p.flexRank != null || p.qbRank != null || p.defRank != null || p.kRank != null;
+    const hasWeekly = p.flexRank != null || p.posRank != null || p.qbRank != null || p.defRank != null || p.kRank != null;
     if (!hasWeekly) p.seasonOnly = true;
   });
   const benchWeekly  = bench.filter(p => !p.seasonOnly);
