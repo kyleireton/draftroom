@@ -3971,26 +3971,43 @@ function updateWeeklyUploadStatus() {
 function assignWeeklySlots(players, rosterPositions) {
   const avail = players.map(p => ({ ...p }));
   const used  = new Set();
-  function pickBest(pred, rankKey) {
+
+  // Null-aware sort: ranked players always beat unranked; among equal nulls use fallback key
+  function pickBest(pred, rankKey, fallbackKey) {
     const cands = avail.filter(p => !used.has(p.pid) && pred(p));
     if (!cands.length) return null;
-    cands.sort((a, b) => (a[rankKey] ?? 9999) - (b[rankKey] ?? 9999));
+    cands.sort((a, b) => {
+      const aR = a[rankKey], bR = b[rankKey];
+      if (aR != null && bR != null) return aR - bR;   // both ranked: lower = better
+      if (aR != null) return -1;                        // a ranked, b not → a wins
+      if (bR != null) return 1;                         // b ranked, a not → b wins
+      // both unranked: tiebreak on fallbackKey if provided
+      if (fallbackKey) {
+        const aF = a[fallbackKey], bF = b[fallbackKey];
+        if (aF != null && bF != null) return aF - bF;
+        if (aF != null) return -1;
+        if (bF != null) return 1;
+      }
+      return 0;
+    });
     used.add(cands[0].pid); return cands[0];
   }
+
   const starters = [];
   (rosterPositions || []).forEach(slot => {
     if (slot === 'BN' || slot === 'IR') return;
     let p = null;
-    if      (slot === 'QB')         p = pickBest(p => p.pos === 'QB', 'qbRank');
-    else if (slot === 'RB')         p = pickBest(p => p.pos === 'RB', 'flexRank');
-    else if (slot === 'WR')         p = pickBest(p => p.pos === 'WR', 'flexRank');
-    else if (slot === 'TE')         p = pickBest(p => p.pos === 'TE', 'flexRank');
-    else if (slot === 'K')          p = pickBest(p => p.pos === 'K',   'kRank');
-    else if (slot === 'DEF')        p = pickBest(p => p.pos === 'DEF', 'defRank');
-    else if (slot === 'FLEX')       p = pickBest(p => ['RB','WR','TE'].includes(p.pos), 'flexRank');
-    else if (slot === 'SUPER_FLEX') p = pickBest(p => p.pos === 'QB', 'qbRank') || pickBest(p => ['RB','WR','TE'].includes(p.pos), 'flexRank');
-    else if (slot === 'REC_FLEX')   p = pickBest(p => ['WR','TE'].includes(p.pos), 'flexRank');
-    else if (slot === 'WRRB_FLEX')  p = pickBest(p => ['WR','RB'].includes(p.pos), 'flexRank');
+    if      (slot === 'QB')         p = pickBest(p => p.pos === 'QB',                         'qbRank');
+    else if (slot === 'RB')         p = pickBest(p => p.pos === 'RB',                         'flexRank', 'posRank');
+    else if (slot === 'WR')         p = pickBest(p => p.pos === 'WR',                         'flexRank', 'posRank');
+    else if (slot === 'TE')         p = pickBest(p => p.pos === 'TE',                         'flexRank', 'posRank');
+    else if (slot === 'K')          p = pickBest(p => p.pos === 'K',                           'kRank');
+    else if (slot === 'DEF')        p = pickBest(p => p.pos === 'DEF',                         'defRank');
+    else if (slot === 'FLEX')       p = pickBest(p => ['RB','WR','TE'].includes(p.pos),        'flexRank', 'posRank');
+    else if (slot === 'SUPER_FLEX') p = pickBest(p => p.pos === 'QB',                         'qbRank')
+                                    || pickBest(p => ['RB','WR','TE'].includes(p.pos),          'flexRank', 'posRank');
+    else if (slot === 'REC_FLEX')   p = pickBest(p => ['WR','TE'].includes(p.pos),             'flexRank', 'posRank');
+    else if (slot === 'WRRB_FLEX')  p = pickBest(p => ['WR','RB'].includes(p.pos),             'flexRank', 'posRank');
     if (p) { p.slot = slot; p.bench = false; starters.push(p); }
   });
   avail.filter(p => !used.has(p.pid)).forEach(p => { p.slot = 'BN'; p.bench = true; starters.push(p); });
