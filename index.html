@@ -4050,6 +4050,17 @@ function buildWeeklyRankChip(p) {
   const posBg = POS_CHIP_COLOR[p.pos] || '#374151';
   const dash  = `<span style="min-width:38px;font-size:11px;color:#374151;flex-shrink:0">—</span>`;
 
+  // Outlined season chip — same style as waiver season section
+  const seasonFallback = (() => {
+    if (p.seasonOv == null) return null;
+    const ov = p.seasonOv, tier = p.seasonTier ?? null;
+    const chipBg = posBg + '55';
+    const inner = tier != null
+      ? `<span style="padding:2px 5px;font-size:10px;font-weight:800;color:#fff">T${tier}</span><span style="width:1px;background:rgba(255,255,255,0.25);align-self:stretch"></span><span style="padding:2px 5px;font-size:10px;font-weight:800;color:#e2e8f0">#${ov}</span>`
+      : `<span style="padding:2px 6px;font-size:10px;font-weight:800;color:#fff">#${ov}</span>`;
+    return `<span style="display:inline-flex;align-items:center;background:${chipBg};border:1px solid ${posBg};border-radius:4px;overflow:hidden;flex-shrink:0;min-width:${tier != null ? 52 : 36}px" title="Season rank #${ov}${tier ? ' · Tier '+tier : ''} (no weekly rank)">${inner}</span>`;
+  })();
+
   // Split chip: "TX | #Y" — tier left, rank right, shared background
   const splitChip = (tier, rank, tip) => {
     const tierPart = tier != null ? `<span style="padding:2px 5px;font-size:10px;font-weight:800;color:#fff">T${tier}</span>` : '';
@@ -4062,19 +4073,19 @@ function buildWeeklyRankChip(p) {
     `<span style="display:inline-flex;align-items:center;background:${posBg};border-radius:4px;overflow:hidden;flex-shrink:0;min-width:36px" title="${tip}"><span style="padding:2px 6px;font-size:10px;font-weight:800;color:#fff">${label}</span></span>`;
 
   if (p.pos === 'QB') {
-    if (p.qbRank == null) return dash;
+    if (p.qbRank == null) return seasonFallback ?? dash;
     const tier = p.qbTier ?? null;
     const matchTip = p.matchup != null ? ` · matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : '';
     return splitChip(tier, p.qbRank, `QB${tier ? ` Tier ${tier}` : ''} · Rank #${p.qbRank}${matchTip}`);
   }
   if (p.pos === 'DEF') {
-    if (p.defRank == null) return dash;
+    if (p.defRank == null) return seasonFallback ?? dash;
     const tier = p.defTier ?? null;
     const spreadStr = p.defSpread != null ? ` · spread ${p.defSpread > 0 ? '+' : ''}${p.defSpread}` : '';
     return splitChip(tier, p.defRank, `DEF Rank #${p.defRank}${tier ? ` · Tier ${tier}` : ''}${p.opp ? ` · vs ${p.opp}` : ''}${spreadStr}`);
   }
   if (p.pos === 'K') {
-    if (p.kRank == null) return dash;
+    if (p.kRank == null) return seasonFallback ?? dash;
     return soloChip(`#${p.kRank}`, `K Rank #${p.kRank}${p.kProjection != null ? ` · Proj ${p.kProjection.toFixed(1)}` : ''}${p.opp ? ` · vs ${p.opp}` : ''}`);
   }
   // RB / WR / TE — positional tier + positional rank; flex rank in tooltip
@@ -4084,7 +4095,7 @@ function buildWeeklyRankChip(p) {
     const flexStr  = flexRank != null ? ` · Flex #${flexRank}` : '';
     return splitChip(p.posTier ?? null, p.posRank ?? null, `${p.pos}${p.posTier ? ` Tier ${p.posTier}` : ''}${p.posRank ? ` · #${p.posRank}` : ''}${flexStr}${matchTip}`);
   }
-  if (flexRank == null) return dash;
+  if (flexRank == null) return seasonFallback ?? dash;
   // Only in FLEX list — no positional tier/rank: show flex rank alone
   const tip = p.matchup != null ? `${p.pos} Flex #${flexRank} · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : `${p.pos} Flex #${flexRank}`;
   return soloChip(`#${flexRank}`, tip);
@@ -4211,10 +4222,40 @@ function buildWeeklyMyTeamSection(lg, data) {
   const projTotal = starters.reduce((s, p) => s + (p.projPts || 0), 0);
   const noRankings = !weeklyHasRankings;
 
+  // ── Attach season ranks to bench players without a weekly rank ──────────
+  const seasonPool = weeklySeasonPlayers.length ? weeklySeasonPlayers : (data.csvPlayers || []);
+  if (seasonPool.length) {
+    const seasonByNorm = {};
+    seasonPool.forEach(sp => {
+      const key = normName(sp.name);
+      const val = { ov: sp.ov ?? sp.adpRank, tier: sp.tier ?? null };
+      seasonByNorm[key] = val;
+      const alt = NAME_ALIASES[key];
+      if (alt && !seasonByNorm[alt]) seasonByNorm[alt] = val;
+    });
+    bench.forEach(p => {
+      const hasWeekly = p.flexRank != null || p.qbRank != null || p.defRank != null || p.kRank != null;
+      if (!hasWeekly) {
+        const key = normName(p.name);
+        const se = seasonByNorm[key] ?? (NAME_ALIASES[key] ? seasonByNorm[NAME_ALIASES[key]] : null);
+        if (se) { p.seasonOv = se.ov; p.seasonTier = se.tier; }
+      }
+    });
+  }
+
+  // Sort bench: weekly-ranked → season-only → unranked (all ascending by rank)
+  bench.sort((a, b) => {
+    const aW = a.flexRank ?? a.qbRank ?? a.defRank ?? a.kRank;
+    const bW = b.flexRank ?? b.qbRank ?? b.defRank ?? b.kRank;
+    if (aW != null && bW != null) return aW - bW;
+    if (aW != null) return -1;
+    if (bW != null) return 1;
+    return (a.seasonOv ?? Infinity) - (b.seasonOv ?? Infinity);
+  });
+
   const upgradeCount = [...upgrades].filter(pid => bench.some(p => p.pid === pid)).length;
   const starterRows  = starters.map(p => weeklyPlayerRow(p, false)).join('');
-  const benchRows    = bench.sort((a, b) => (a.flexRank ?? a.qbRank ?? a.defRank ?? a.kRank ?? 9999) - (b.flexRank ?? b.qbRank ?? b.defRank ?? b.kRank ?? 9999))
-                           .map(p => weeklyPlayerRow(p, upgrades.has(p.pid))).join('');
+  const benchRows    = bench.map(p => weeklyPlayerRow(p, upgrades.has(p.pid))).join('');
 
   const myTeamHtml = `<div class="ls-lc-section">
     <div class="ls-lc-section-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
