@@ -3686,7 +3686,7 @@ function playerRow(p) {
   const slotLabel = p.slot && p.slot !== 'BN' ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0">${p.slot === 'SUPER_FLEX' ? 'SF' : p.slot}</span>` : '';
   return `<div class="ls-player-row" style="${posRowStyle(p.pos)}">
     ${badge}
-    <span class="ls-p-name" title="${escHtml(dn)}" style="color:#f1f5f9">${escHtml(dn)}</span>
+    <span class="ls-p-name" title="${escHtml(dn)}" style="color:${p.seasonOnly ? '#94a3b8' : '#f1f5f9'}">${escHtml(dn)}</span>
     <span class="ls-p-pos" style="color:${posTextColor(p.pos)};font-weight:700">${p.pos}</span>
     ${slotLabel}
     ${buildEnvBar(getImplied(p.team))}
@@ -4127,7 +4127,7 @@ function weeklyPlayerRow(p, isUpgrade) {
   }
   return `<div class="ls-player-row" style="${posRowStyle(p.pos)}${rowBg}">
     ${chip}
-    <span class="ls-p-name" title="${escHtml(dn)}" style="color:#f1f5f9">${escHtml(dn)}</span>
+    <span class="ls-p-name" title="${escHtml(dn)}" style="color:${p.seasonOnly ? '#94a3b8' : '#f1f5f9'}">${escHtml(dn)}</span>
     <span class="ls-p-pos" style="color:${posTextColor(p.pos)};font-weight:700">${p.pos}</span>
     ${slotL}${oppTag}
     ${rightMetric}
@@ -4253,9 +4253,32 @@ function buildWeeklyMyTeamSection(lg, data) {
     return (a.seasonOv ?? Infinity) - (b.seasonOv ?? Infinity);
   });
 
+  // Split bench into weekly-ranked vs season-only/unranked
+  bench.forEach(p => {
+    const hasWeekly = p.flexRank != null || p.qbRank != null || p.defRank != null || p.kRank != null;
+    if (!hasWeekly) p.seasonOnly = true;
+  });
+  const benchWeekly  = bench.filter(p => !p.seasonOnly);
+  const benchSeason  = bench.filter(p => p.seasonOnly);
+
   const upgradeCount = [...upgrades].filter(pid => bench.some(p => p.pid === pid)).length;
   const starterRows  = starters.map(p => weeklyPlayerRow(p, false)).join('');
-  const benchRows    = bench.map(p => weeklyPlayerRow(p, upgrades.has(p.pid))).join('');
+
+  const weeklyBox = benchWeekly.length ? `
+    <div style="background:#111827;border:1px solid #1e2530;border-radius:7px;padding:7px 10px;margin-bottom:6px">
+      <div style="font-size:10px;font-weight:700;color:#facc15;display:flex;align-items:center;gap:5px;margin-bottom:5px;padding-bottom:5px;border-bottom:1px solid #1e2530">
+        ⚡ <span style="color:#94a3b8">Weekly ranked${upgradeCount ? ` &nbsp;<span style="color:#22c55e">(${upgradeCount} upgrade${upgradeCount > 1 ? 's' : ''})</span>` : ''}</span>
+      </div>
+      ${benchWeekly.map(p => weeklyPlayerRow(p, upgrades.has(p.pid))).join('')}
+    </div>` : '';
+
+  const seasonBox = benchSeason.length ? `
+    <div style="background:#111827;border:1px solid #1e2530;border-radius:7px;padding:7px 10px">
+      <div style="font-size:10px;font-weight:700;color:#64748b;display:flex;align-items:center;gap:5px;margin-bottom:5px;padding-bottom:5px;border-bottom:1px solid #1e2530">
+        📋 <span>Season ranked &amp; unranked</span>
+      </div>
+      ${benchSeason.map(p => weeklyPlayerRow(p, false)).join('')}
+    </div>` : '';
 
   const myTeamHtml = `<div class="ls-lc-section">
     <div class="ls-lc-section-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -4266,11 +4289,11 @@ function buildWeeklyMyTeamSection(lg, data) {
     </div>
     ${starterRows}
     ${bench.length ? `<div style="margin-top:6px">
-      <div class="ls-lc-section-title">Bench${upgradeCount ? ` <span style="color:#22c55e;font-weight:700">(${upgradeCount} upgrade${upgradeCount > 1 ? 's' : ''})</span>` : ''}</div>
-      ${benchRows}
+      <div class="ls-lc-section-title">Bench</div>
+      ${weeklyBox}${seasonBox}
     </div>` : ''}
     ${!noRankings ? `<div style="margin-top:7px;font-size:9px;color:#374151;line-height:1.6">
-      Chip: <span style="color:#6d28d9">QB</span> tier·rank &nbsp;·&nbsp; <span style="color:#166534">RB</span> <span style="color:#1e40af">WR</span> <span style="color:#92400e">TE</span> pos tier·rank (hover for flex#) &nbsp;·&nbsp; <span style="color:#1e3a5f">DEF</span> tier·rank &nbsp;·&nbsp; <span style="color:#374151">K</span> rank only
+      Chip: <span style="color:#6d28d9">QB</span> tier·rank &nbsp;·&nbsp; <span style="color:#166534">RB</span> <span style="color:#1e40af">WR</span> <span style="color:#92400e">TE</span> pos tier·rank (hover for flex#) &nbsp;·&nbsp; <span style="color:#1e3a5f">DEF</span> tier·rank &nbsp;·&nbsp; <span style="color:#374151">K</span> rank only &nbsp;·&nbsp; outlined = season ADP only
     </div>` : ''}
   </div>`;
 
