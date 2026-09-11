@@ -3756,23 +3756,29 @@ let weeklyDefMap     = {};  // teamAbbr → {rank,tier,name,opp,spread}
 let weeklyKMap       = {};  // normName → {rank,name,team,projection,opp}
 let weeklyFlexMap    = {};  // normName → {rank,pos,name,team,opp,total,matchup}
 let weeklyNflWeek    = null;
+let weeklyNflYear    = new Date().getFullYear();
 let weeklyHasRankings = false;
 let weeklySeasonPlayers = []; // season-long rankings from half-ppr.csv / full-season upload
 // Previous-upload snapshots for rank-change highlighting
 let weeklyPrevFlexMap = {}; let weeklyPrevQbMap = {}; let weeklyPrevRbMap = {};
 let weeklyPrevWrMap  = {}; let weeklyPrevTeMap = {}; let weeklyPrevDefMap = {};
 let weeklyPrevKMap   = {}; let weeklyPrevSeasonMap = {}; // normName → prevOv
-// Game-start lock data — store kickoff times, compare to local clock at render time
-// Schedule doesn't change intra-day so a 12h TTL avoids repeat fetches during game window
+// Game-start lock data — store kickoff times per NFL week, compare to local clock at render time
 let weeklyGameKickoffs        = {}; // Sleeper-canonical teamAbbr → kickoff timestamp ms
 let weeklyGameKickoffFetchedAt = 0;
-const GAME_KICKOFF_TTL_MS     = 12 * 60 * 60 * 1000;
-async function fetchGameKickoffs() {
+let weeklyGameKickoffsForWeek  = null; // which NFL week the cached kickoffs belong to
+const GAME_KICKOFF_TTL_MS      = 12 * 60 * 60 * 1000;
+async function fetchGameKickoffs(week, year) {
   const now = Date.now();
-  if (now - weeklyGameKickoffFetchedAt < GAME_KICKOFF_TTL_MS && Object.keys(weeklyGameKickoffs).length) return;
+  // Invalidate cache if the NFL week changed or it's been 12h
+  const weekChanged = week != null && weeklyGameKickoffsForWeek !== week;
+  if (!weekChanged && now - weeklyGameKickoffFetchedAt < GAME_KICKOFF_TTL_MS && Object.keys(weeklyGameKickoffs).length) return;
   weeklyGameKickoffFetchedAt = now;
+  weeklyGameKickoffsForWeek  = week ?? null;
   try {
-    const d = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard').then(r => r.json());
+    // Pass week+year so ESPN returns exactly the right week — without params it may return a stale week
+    const qs  = (week && year) ? `?seasontype=2&week=${week}&year=${year}` : '';
+    const d   = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard${qs}`).then(r => r.json());
     const next = {};
     (d?.events || []).forEach(ev => {
       const kickoffMs = ev.date ? new Date(ev.date).getTime() : null;
@@ -4656,7 +4662,9 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
     // Fetch state first to get week, then parallel fetch everything else
     const nflState = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json());
     const week     = nflState?.display_week || nflState?.week || 1;
-    fetchGameKickoffs(); // fire-and-forget; populates weeklyGameKickoffs once per 12h
+    const year     = nflState?.season ? parseInt(nflState.season) : new Date().getFullYear();
+    if (!weeklyNflWeek) { weeklyNflWeek = week; weeklyNflYear = year; }
+    await fetchGameKickoffs(week, year); // await so lock data is ready before render
     const [rosterRes, userRes, matchupRes] = await Promise.all([
       fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/rosters`),
       fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/users`),
