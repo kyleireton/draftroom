@@ -3762,6 +3762,34 @@ let weeklySeasonPlayers = []; // season-long rankings from half-ppr.csv / full-s
 let weeklyPrevFlexMap = {}; let weeklyPrevQbMap = {}; let weeklyPrevRbMap = {};
 let weeklyPrevWrMap  = {}; let weeklyPrevTeMap = {}; let weeklyPrevDefMap = {};
 let weeklyPrevKMap   = {}; let weeklyPrevSeasonMap = {}; // normName → prevOv
+// Game-start lock data — store kickoff times, compare to local clock at render time
+// Schedule doesn't change intra-day so a 12h TTL avoids repeat fetches during game window
+let weeklyGameKickoffs        = {}; // Sleeper-canonical teamAbbr → kickoff timestamp ms
+let weeklyGameKickoffFetchedAt = 0;
+const GAME_KICKOFF_TTL_MS     = 12 * 60 * 60 * 1000;
+async function fetchGameKickoffs() {
+  const now = Date.now();
+  if (now - weeklyGameKickoffFetchedAt < GAME_KICKOFF_TTL_MS && Object.keys(weeklyGameKickoffs).length) return;
+  weeklyGameKickoffFetchedAt = now;
+  try {
+    const d = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard').then(r => r.json());
+    const next = {};
+    (d?.events || []).forEach(ev => {
+      const kickoffMs = ev.date ? new Date(ev.date).getTime() : null;
+      if (!kickoffMs) return;
+      (ev.competitions?.[0]?.competitors || []).forEach(c => {
+        const abbr = toSleeperAbbr(c.team?.abbreviation || '');
+        if (abbr) next[abbr] = kickoffMs;
+      });
+    });
+    if (Object.keys(next).length) weeklyGameKickoffs = next;
+  } catch(_) {}
+}
+// True if this team's game has already kicked off per the local system clock
+function teamGameStarted(abbr) {
+  const ko = weeklyGameKickoffs[abbr];
+  return ko != null && Date.now() >= ko;
+}
 
 // Per-league collapse state — persisted across sessions
 let collapsedLeagues = new Set(
@@ -4295,15 +4323,20 @@ function buildWeeklyMyTeamSection(lg, data) {
   const matchupData = data.matchupData;
   if (matchupData) {
     const nonBnSlots = rosterPositions.filter(s => s !== 'BN' && s !== 'IR');
+    // Lock based on local clock vs ESPN kickoff time — score-independent, second-accurate
+    const playerTeam = pid => toSleeperAbbr(_sleeperRawPlayers?.[pid]?.team || '');
     (matchupData.starters || []).forEach((pid, i) => {
       if (!pid || pid === '0') return;
-      if (i < nonBnSlots.length && pid in matchupData.startersPoints) {
-        lockedSlotMap[pid] = nonBnSlots[i]; // game started while in this starter slot
+      const team = playerTeam(pid);
+      if (i < nonBnSlots.length && team && teamGameStarted(team)) {
+        lockedSlotMap[pid] = nonBnSlots[i]; // kickoff has passed per local clock
       }
     });
     const starterSet = new Set(matchupData.starters || []);
-    Object.keys(matchupData.playersPoints || {}).forEach(pid => {
-      if (!starterSet.has(pid)) gameStartedSet.add(pid); // on bench, game already started
+    (myRoster?.players || []).forEach(pid => {
+      if (starterSet.has(pid)) return;
+      const team = playerTeam(pid);
+      if (team && teamGameStarted(team)) gameStartedSet.add(pid); // bench, can't swap in
     });
   }
   // Annotate players with locked / liveScore / gameStarted flags
@@ -4623,6 +4656,7 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
     // Fetch state first to get week, then parallel fetch everything else
     const nflState = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json());
     const week     = nflState?.display_week || nflState?.week || 1;
+    fetchGameKickoffs(); // fire-and-forget; populates weeklyGameKickoffs once per 12h
     const [rosterRes, userRes, matchupRes] = await Promise.all([
       fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/rosters`),
       fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/users`),
