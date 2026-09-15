@@ -3769,7 +3769,7 @@ let weeklyPrevKMap   = {}; let weeklyPrevSeasonMap = {}; // normName → prevOv
 let weeklyGameKickoffs        = {}; // Sleeper-canonical teamAbbr → kickoff timestamp ms
 let weeklyGameKickoffFetchedAt = 0;
 let weeklyGameKickoffsForWeek  = null; // which NFL week the cached kickoffs belong to
-const GAME_KICKOFF_TTL_MS      = 12 * 60 * 60 * 1000;
+const GAME_KICKOFF_TTL_MS      = 2 * 60 * 60 * 1000; // 2h — refreshes across week boundary
 async function fetchGameKickoffs(week, year) {
   const now = Date.now();
   // Invalidate cache if the NFL week changed or it's been 12h
@@ -3793,10 +3793,28 @@ async function fetchGameKickoffs(week, year) {
     if (Object.keys(next).length) weeklyGameKickoffs = next;
   } catch(_) {}
 }
-// True if this team's game has already kicked off per the local system clock
+// Returns the Unix ms timestamp for the most recent Tuesday at 00:00 local time.
+// Fantasy lineups reset each Tuesday — any kickoff before this is last week's game.
+function getFantasyWeekStart() {
+  const now = new Date();
+  // getDay(): 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
+  // Days elapsed since last Tuesday: Tue=0, Wed=1, Thu=2, Fri=3, Sat=4, Sun=5, Mon=6
+  const daysSinceTue = (now.getDay() + 5) % 7;
+  const tue = new Date(now);
+  tue.setDate(now.getDate() - daysSinceTue);
+  tue.setHours(0, 0, 0, 0); // midnight local
+  return tue.getTime();
+}
+
+// True if this team's game has already kicked off AND belongs to the current fantasy week.
+// Resets every Tuesday 00:00 local — locks only games that kicked off after that.
 function teamGameStarted(abbr) {
   const ko = weeklyGameKickoffs[abbr];
-  return ko != null && Date.now() >= ko;
+  if (ko == null) return false;
+  const now = Date.now();
+  if (now < ko) return false;                    // game hasn't kicked off yet
+  if (ko < getFantasyWeekStart()) return false;  // kickoff was last week — ignore
+  return true;
 }
 
 // Per-league collapse state — persisted across sessions
