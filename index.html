@@ -978,7 +978,7 @@ body {
     <div class="landing-sub">Your fantasy football command center</div>
   </div>
   <div class="landing-tiles">
-    <div class="landing-tile leagues" onclick="goToLeagues()">
+    <div class="landing-tile leagues" onclick="leagueList.length ? openLeagueSummary() : goToLeagues()">
       <div class="tile-icon-lg">🏆</div>
       <div class="tile-label">My Leagues</div>
       <div class="tile-blurb">Compare rosters, check the waiver wire, and set your lineup using weekly rankings + Sleeper projections.</div>
@@ -998,7 +998,7 @@ body {
   <div class="leagues-header">
     <button class="leagues-back" onclick="showScreen('landing')">← Home</button>
     <div class="leagues-title">My Leagues</div>
-    <button class="leagues-back" onclick="openWeeklySummary()" style="margin-left:auto;font-size:12px">Start/Sit →</button>
+    <button class="nav-pill" onclick="openLeagueSummary()" style="margin-left:auto">📋 League Season →</button>
   </div>
   <div class="leagues-body">
     <!-- Username entry card — shown only if no username saved -->
@@ -4597,16 +4597,29 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
         ? `<span style="padding:2px 5px;font-size:10px;font-weight:800;color:#fff">T${tier}</span><span style="width:1px;background:rgba(255,255,255,0.25);align-self:stretch"></span><span style="padding:2px 5px;font-size:10px;font-weight:800;color:#e2e8f0">#${ov}</span>`
         : `<span style="padding:2px 6px;font-size:10px;font-weight:800;color:#fff">${ov != null ? '#'+ov : '?'}</span>`;
       const chip = `<span style="display:inline-flex;align-items:center;background:${chipBg};border:1px solid ${posColor};border-radius:4px;overflow:hidden;flex-shrink:0;min-width:${tier != null ? 52 : 36}px" title="Season rank #${ov ?? '?'}${tier ? ' · Tier '+tier : ''}">${chipInner}</span>`;
-      return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #1e2530">
-        ${chip}
+      const d = p.seasonDelta;
+      const deltaBadge = (d != null && Math.abs(d) >= 3)
+        ? `<span style="font-size:9px;font-weight:800;color:${d > 0 ? '#22c55e' : '#ef4444'};background:${d > 0 ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)'};border-radius:3px;padding:1px 4px;flex-shrink:0">${d > 0 ? '▲' : '▼'}${Math.abs(d)}</span>`
+        : '';
+      const deltaRightBorder = (d != null && Math.abs(d) >= 3) ? `border-right:3px solid rgba(${d > 0 ? '34,197,94' : '239,68,68'},0.45);` : '';
+      return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #1e2530;${deltaRightBorder}">
+        ${chip}${deltaBadge}
         <span style="font-size:11px;color:#cbd5e1;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</span>
         <span style="font-size:10px;color:#64748b">${p.pos}</span>
       </div>`;
     };
 
+    // Attach season rank delta from previous upload
+    const withSeasonDelta = p => {
+      const key = normName(p.name);
+      const prevOv = weeklyPrevSeasonMap[key] ?? (NAME_ALIASES[key] ? weeklyPrevSeasonMap[NAME_ALIASES[key]] : null);
+      const curOv  = p.ov ?? p.adpRank;
+      return { ...p, seasonDelta: (prevOv != null && curOv != null) ? prevOv - curOv : null };
+    };
+
     const noSeason = `<div class="ls-lc-loading">—</div>`;
-    const qbSeasonRows   = sQbs.map(seasonRow).join('')   || noSeason;
-    const flexSeasonRows = sFlex.map(seasonRow).join('')  || noSeason;
+    const qbSeasonRows   = sQbs.map(p => seasonRow(withSeasonDelta(p))).join('')   || noSeason;
+    const flexSeasonRows = sFlex.map(p => seasonRow(withSeasonDelta(p))).join('')  || noSeason;
 
     seasonHtml = `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #2d3748">
       <div style="font-size:9px;color:#64748b;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:700">📋 Season rankings (ADP)</div>
