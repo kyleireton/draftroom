@@ -3558,8 +3558,9 @@ function buildLeagueCardHtml(lg, data, isLoading) {
     body = loadingBody;
     if (data?.loaded) {
       const mySection    = buildLcMyTeam(lg, data);
+      const alertSection  = buildLcUpgradeAlert(lg, data);
       const waiverSection = buildLcWaiver(data);
-      body = mySection + (waiverSection ? `<div class="ls-lc-divider"></div>${waiverSection}` : '');
+      body = mySection + alertSection + (waiverSection ? `<div class="ls-lc-divider"></div>${waiverSection}` : '');
     }
   }
 
@@ -3693,6 +3694,90 @@ function playerRow(p) {
     ${slotLabel}
     ${buildEnvBar(getImplied(p.team))}
     <span class="ls-p-proj" style="color:#94a3b8">${p.projPts != null ? p.projPts : ''}</span>
+  </div>`;
+}
+
+// ── Unranked-on-roster / ranked-on-waivers alert ──
+function buildLcUpgradeAlert(lg, data) {
+  const { rosters, csvPlayers, myRosterId } = data;
+  if (!myRosterId || !csvPlayers.length) return '';
+
+  const myRoster = rosters.find(r => r.roster_id === myRosterId);
+  if (!myRoster) return '';
+
+  // Build rostered lookup (all teams) for waiver availability check
+  const rosteredPids  = new Set();
+  const rosteredNorms = new Set();
+  rosters.forEach(r => (r.players || []).forEach(pid => {
+    rosteredPids.add(pid);
+    const norm = sleeperById[pid];
+    if (norm) { rosteredNorms.add(norm); const al = NAME_ALIASES[norm]; if (al) rosteredNorms.add(al); }
+  }));
+
+  function isRosteredCsv(p) {
+    const norm  = normName(p.name);
+    const sInfo = sleeperByName[norm] || (NAME_ALIASES[norm] ? sleeperByName[NAME_ALIASES[norm]] : null);
+    if (sInfo?.id && rosteredPids.has(sInfo.id)) return true;
+    if (rosteredNorms.has(norm)) return true;
+    const al = NAME_ALIASES[norm];
+    return !!(al && rosteredNorms.has(al));
+  }
+
+  // Collect unranked skill players on MY roster, split by bucket
+  const buckets = { QB: [], Flex: [] };
+  (myRoster.players || []).forEach(pid => {
+    const norm  = sleeperById[pid];
+    const sInfo = norm ? sleeperByName[norm] : null;
+    const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
+    const bucket = pos === 'QB' ? 'QB' : ['RB','WR','TE'].includes(pos) ? 'Flex' : null;
+    if (!bucket) return;
+    let rank = null;
+    if (norm) {
+      const csvP = csvPlayers.find(p => {
+        const pn = normName(p.name);
+        return pn === norm || NAME_ALIASES[pn] === norm || pn === NAME_ALIASES[norm];
+      });
+      if (csvP) rank = csvP.ov;
+    }
+    if (rank == null && sInfo?.adpRank != null) rank = sInfo.adpRank;
+    if (rank == null) {
+      const dn = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+      buckets[bucket].push(dn);
+    }
+  });
+
+  // Sort alphabetically
+  buckets.QB.sort();
+  buckets.Flex.sort();
+
+  // Count ranked waiver options per bucket
+  const waiverRanked = { QB: 0, Flex: 0 };
+  csvPlayers.forEach(p => {
+    if (isRosteredCsv(p)) return;
+    if (p.pos === 'QB') waiverRanked.QB++;
+    else if (['RB','WR','TE'].includes(p.pos)) waiverRanked.Flex++;
+  });
+
+  // Build display rows: min(unranked, ranked waiver, 5) per bucket
+  const rows = [];
+  ['QB','Flex'].forEach(bucket => {
+    const unranked = buckets[bucket];
+    const avail    = waiverRanked[bucket];
+    const showN    = Math.min(unranked.length, avail, 5);
+    if (showN === 0) return;
+    const names = unranked.slice(0, showN).map(n => escHtml(displayName(n))).join(', ');
+    rows.push(`<div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
+      <span style="font-size:10px;font-weight:700;color:#f59e0b;flex-shrink:0;min-width:28px">${bucket}</span>
+      <span style="color:#e2c97e;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${names}</span>
+      <span style="color:#78716c;font-size:10px;flex-shrink:0">${avail} ranked avail.</span>
+    </div>`);
+  });
+
+  if (!rows.length) return '';
+
+  return `<div style="margin:6px 0 2px;padding:6px 10px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:4px;font-size:11px;line-height:1.4">
+    <span style="color:#fbbf24;font-weight:600">⚠ Unranked on roster with ranked waiver options:</span>
+    ${rows.join('')}
   </div>`;
 }
 
