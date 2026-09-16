@@ -3203,7 +3203,10 @@ function renderWaiverWire() {
     const dn = displayName(p.name);
     const el = document.createElement('div');
     el.className = 'wire-card';
-    el.style.cssText += posRowStyle(p.pos);
+    // Use POS_CHIP_COLOR at 25% opacity to match the left roster card weight
+    const _wireBase = POS_CHIP_COLOR[p.pos] || '#374151';
+    const _wireBorder = (POS_STYLE[p.pos]?.border) || '#4b5563';
+    el.style.cssText += `background:${_wireBase}40;border-left:3px solid ${_wireBorder};padding-left:6px;`;
     const tierChip = p.tier != null
       ? `<span style="font-size:8px;font-weight:700;color:#fff;background:${tierHsl(p.tier)};border-radius:3px;padding:1px 3px;line-height:1.2">T${p.tier}</span>`
       : '';
@@ -3637,6 +3640,16 @@ function buildLcMyTeam(lg, data) {
   // Projected total across starters
   const projTotal = starters.reduce((s, p) => s + (p.projPts || 0), 0);
 
+  // K / DEF roster notes — only for slots the league actually uses
+  const hasKSlot   = rosterPositions.includes('K');
+  const hasDefSlot = rosterPositions.includes('DEF');
+  const kPlayer    = hasKSlot   ? players.find(p => p.pos === 'K')   : null;
+  const defPlayer  = hasDefSlot ? players.find(p => p.pos === 'DEF') : null;
+  const notesParts = [];
+  if (hasKSlot)   notesParts.push(kPlayer   ? `<span style="font-size:10px;color:#94a3b8">K: <span style="color:#cbd5e1">${escHtml(displayName(kPlayer.name))}</span></span>`   : `<span style="font-size:10px;color:#ef4444">No K</span>`);
+  if (hasDefSlot) notesParts.push(defPlayer ? `<span style="font-size:10px;color:#94a3b8">D: <span style="color:#cbd5e1">${escHtml(displayName(defPlayer.name))}</span></span>` : `<span style="font-size:10px;color:#ef4444">No DEF</span>`);
+  const rosterNotes = notesParts.join('<span style="color:#2d3748;margin:0 2px">·</span>');
+
   const displayList = starters.length ? starters : players.sort((a,b) => (a.rank??9999)-(b.rank??9999)).slice(0, 9);
   const rows = displayList.map(playerRow).join('');
 
@@ -3647,6 +3660,7 @@ function buildLcMyTeam(lg, data) {
       ${avgRank != null ? `<span style="font-size:10px;font-weight:600;color:#64748b">avg rk #${avgRank}</span>` : ''}
       ${projTotal > 0 ? `<span style="font-size:10px;color:#4b5563;margin-left:auto">proj ${projTotal.toFixed(1)}</span>` : ''}
     </div>
+    ${rosterNotes ? `<div style="margin-bottom:6px;display:flex;gap:8px;flex-wrap:wrap">${rosterNotes}</div>` : ''}
     ${rows}
   </div>`;
 }
