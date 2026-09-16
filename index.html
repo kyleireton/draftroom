@@ -3203,10 +3203,13 @@ function renderWaiverWire() {
     const dn = displayName(p.name);
     const el = document.createElement('div');
     el.className = 'wire-card';
+    const tierChip = p.tier != null
+      ? `<span style="font-size:9px;font-weight:700;color:#fff;background:${tierHsl(p.tier)};border-radius:3px;padding:1px 4px;flex-shrink:0">T${p.tier}</span>`
+      : '';
     el.innerHTML = `
       <div class="wire-rank${isValue ? ' value' : ''}">${p.rank ? `#${p.rank}` : '—'}</div>
       <div class="wire-info">
-        <div class="wire-name">${escHtml(dn)}</div>
+        <div class="wire-name" style="display:flex;align-items:center;gap:5px">${escHtml(dn)}${tierChip}</div>
         <div class="wire-pos-team">${p.pos}</div>
       </div>
       ${p.projPts != null ? `<div class="wire-proj"><span>${p.projPts}</span></div>` : ''}`;
