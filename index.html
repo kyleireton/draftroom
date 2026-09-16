@@ -1022,8 +1022,11 @@ body {
 <!-- ── LEAGUE DETAIL SCREEN ── -->
 <div id="league-detail-screen">
   <div class="ld-header">
-    <button class="ld-back" onclick="leagueList.length ? openWeeklySummary() : showScreen('leagues')">← Start/Sit</button>
-    <button class="nav-pill accent" onclick="goToDraftFromLeague()" style="margin-left:8px">Draft Room →</button>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      <button class="nav-pill" onclick="openLeagueSummary ? openLeagueSummary() : showScreen('leagues')">← Season</button>
+      <button class="nav-pill" onclick="openWeeklySummary ? openWeeklySummary() : showScreen('weekly-summary-screen')">← Start/Sit</button>
+    </div>
+    <button class="nav-pill accent" onclick="goToDraftFromLeague()" style="margin-left:4px">Draft Room →</button>
     <div>
       <div class="ld-league-name" id="ld-league-name">—</div>
       <div class="ld-meta" id="ld-meta"></div>
@@ -1065,7 +1068,6 @@ body {
       <div class="ls-title">League Season</div>
       <div class="ls-meta" id="ls-week-label"></div>
     </div>
-    <button class="nav-pill" onclick="openWeeklySummary()" style="flex-shrink:0">⚡ Start/Sit →</button>
   </div>
   <div class="ls-upload-bar">
     <button class="ls-upload-btn" onclick="document.getElementById('ls-rankings-file').click()">↑ Upload Rankings CSV</button>
@@ -1089,7 +1091,6 @@ body {
       <div class="ls-meta"  id="ws-meta"></div>
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
-      <button class="nav-pill" onclick="openLeagueSummary()" style="flex-shrink:0">📋 League Season →</button>
       <div class="ws-info-wrap">
         <button class="ws-info-btn" tabindex="0">ℹ</button>
         <div class="ws-info-tip">
