@@ -876,6 +876,11 @@ body {
 .sb-ok { color:#22c55e; font-weight:600; }
 .sb-issue { color:#fbbf24; }
 .sb-loading { color:#374151; font-style:italic; }
+.sb-hide-btn { display:none; background:none; border:none; color:#4b5563; cursor:pointer; font-size:12px; margin-left:4px; padding:0 3px; line-height:1; border-radius:3px; }
+.sb-hide-btn:hover { color:#e2e8f0; background:#374151; }
+.summary-bar tr:hover .sb-hide-btn { display:inline; }
+.sb-show-all { text-align:center; padding:5px; font-size:10px; color:#4b7bec; cursor:pointer; border-top:1px solid #1e2530; }
+.sb-show-all:hover { color:#7aa2f7; }
 
 /* Waiver panel */
 .ls-waiver { background: #111827; border: 1px solid #1e2530; border-radius: 12px; padding: 14px 16px; }
@@ -3600,6 +3605,21 @@ function detectWeeklyIssues(lg, data) {
     : null;
   if (hasDefSlotW && topWaiverDef && (myDefEntryW == null || topWaiverDef.rank < myDefEntryW.rank)) issues.push('better DEF on waivers');
 
+  // Better QB on waivers vs my starting QB
+  const myStartingQb = slotted.find(p => !p.bench && p.pos === 'QB');
+  const myQbRank = myStartingQb?.qbRank ?? null;
+  const topWaiverQb = Object.values(weeklyQbMap)
+    .filter(e => !isOnRoster(e.name)).sort((a,b) => a.rank - b.rank)[0];
+  if (topWaiverQb && (myQbRank == null || topWaiverQb.rank < myQbRank)) issues.push('better QB on waivers');
+
+  // Better FLEX on waivers vs my worst-ranked non-QB starter
+  const myNonQbStarters = slotted.filter(p => !p.bench && p.pos !== 'QB' && p.pos !== 'K' && p.pos !== 'DEF');
+  const myWorstFlexRank = myNonQbStarters.length
+    ? Math.max(...myNonQbStarters.map(p => p.flexRank ?? 999)) : 999;
+  const topWaiverFlex = Object.values(weeklyFlexMap)
+    .filter(e => !isOnRoster(e.name)).sort((a,b) => a.rank - b.rank)[0];
+  if (topWaiverFlex && topWaiverFlex.rank < myWorstFlexRank) issues.push('better FLEX on waivers');
+
   return issues;
 }
 
@@ -3620,7 +3640,9 @@ function rebuildSummaryBar(mode) {
   const bar = document.getElementById(barId);
   if (!bar || !leagueList.length) return;
 
-  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  const allSorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = allSorted.filter(lg => !hiddenSummaryLeagues.has(lg.league_id));
+  const hiddenCount = allSorted.length - sorted.length;
   const rows = sorted.map(lg => {
     const data    = allLeaguesCache[lg.league_id];
     const issues  = mode === 'ls' ? detectSeasonIssues(lg, data) : detectWeeklyIssues(lg, data);
@@ -3636,15 +3658,18 @@ function rebuildSummaryBar(mode) {
       issueCell = `<td class="sb-issue">${issues.map(i => `⚠ ${i}`).join('<br>')}</td>`;
     }
     return `<tr class="sb-row" onclick="${onClick}">
-      <td><span class="sb-league-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>${kd ? `<span style="margin-left:5px">${kd}</span>` : ''}</td>
+      <td><span class="sb-league-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>${kd ? `<span style="margin-left:5px">${kd}</span>` : ''}<button class="sb-hide-btn" onclick="toggleSummaryLeague('${lid}',event)" title="Hide from summary">×</button></td>
       ${issueCell}
     </tr>`;
   }).join('');
 
+  const showAllFooter = hiddenCount > 0
+    ? `<div class="sb-show-all" onclick="hiddenSummaryLeagues.clear();localStorage.removeItem('dr_hidden_summary');rebuildSummaryBar('ls');rebuildSummaryBar('ws')">Show ${hiddenCount} hidden league${hiddenCount>1?'s':''}</div>`
+    : '';
   bar.innerHTML = `<div class="summary-bar"><table>
     <thead><tr><th>League</th><th>Issues</th></tr></thead>
     <tbody>${rows}</tbody>
-  </table></div>`;
+  </table>${showAllFooter}</div>`;
 }
 
 // ── Main renderer: one card per league ──
@@ -3653,7 +3678,9 @@ function renderLeagueSummary() {
   if (!list) return;
   if (!leagueList.length) { list.innerHTML = '<div class="ls-lc-loading">No leagues found. Connect your Sleeper account on the Leagues screen.</div>'; return; }
 
-  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  const allSorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = allSorted.filter(lg => !hiddenSummaryLeagues.has(lg.league_id));
+  const hiddenCount = allSorted.length - sorted.length;
 
   // Skeleton pass: render all league cards with loading state immediately
   list.innerHTML = sorted.map(lg => {
@@ -4059,6 +4086,14 @@ let weeklyFlexMap    = {};  // normName → {rank,pos,name,team,opp,total,matchu
 let weeklyNflWeek    = null;
 let weeklyNflYear    = new Date().getFullYear();
 let weeklyHasRankings = false;
+let hiddenSummaryLeagues = new Set(JSON.parse(localStorage.getItem('dr_hidden_summary') || '[]'));
+function toggleSummaryLeague(lid, ev) {
+  ev.stopPropagation();
+  if (hiddenSummaryLeagues.has(lid)) hiddenSummaryLeagues.delete(lid);
+  else hiddenSummaryLeagues.add(lid);
+  localStorage.setItem('dr_hidden_summary', JSON.stringify([...hiddenSummaryLeagues]));
+  rebuildSummaryBar('ls'); rebuildSummaryBar('ws');
+}
 let weeklySeasonPlayers = []; // season-long rankings from half-ppr.csv / full-season upload
 // Previous-upload snapshots for rank-change highlighting
 let weeklyPrevFlexMap = {}; let weeklyPrevQbMap = {}; let weeklyPrevRbMap = {};
@@ -4971,7 +5006,9 @@ async function openWeeklySummary() {
 function renderWeeklySummary() {
   const list = document.getElementById('ws-leagues-list'); if (!list) return;
   if (!leagueList.length) { list.innerHTML = '<div class="ls-lc-loading">No leagues found.</div>'; return; }
-  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  const allSorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = allSorted.filter(lg => !hiddenSummaryLeagues.has(lg.league_id));
+  const hiddenCount = allSorted.length - sorted.length;
   list.innerHTML = sorted.map(lg => buildWeeklyLeagueCardHtml(lg, null, true)).join('');
   ensureMySleeperUserId().then(myUid => {
     ensureSleeperDb().then(() => {
