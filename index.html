@@ -3642,14 +3642,26 @@ function buildLcMyTeam(lg, data) {
   const projTotal = starters.reduce((s, p) => s + (p.projPts || 0), 0);
 
   // K / DEF roster notes — only for slots the league actually uses
+  // Resolve position directly from raw Sleeper data (DEF is excluded from sleeperByName)
   const hasKSlot   = rosterPositions.includes('K');
   const hasDefSlot = rosterPositions.includes('DEF');
-  const kPlayer    = hasKSlot   ? players.find(p => p.pos === 'K')   : null;
-  const defPlayer  = hasDefSlot ? players.find(p => p.pos === 'DEF') : null;
+  const resolvePos = pid => {
+    const norm  = sleeperById[pid];
+    const sInfo = norm ? sleeperByName[norm] : null;
+    if (sInfo?.pos) return sInfo.pos;
+    return _sleeperRawPlayers?.[pid]?.position || _sleeperRawPlayers?.[pid]?.fantasy_positions?.[0] || null;
+  };
+  const resolveName = pid => {
+    const norm  = sleeperById[pid];
+    const sInfo = norm ? sleeperByName[norm] : null;
+    return sInfo?.fullName || _sleeperRawPlayers?.[pid]?.full_name || (norm ? toTitleCase(norm) : pid);
+  };
+  const kPid   = hasKSlot   ? (myRoster.players || []).find(pid => resolvePos(pid) === 'K')   : null;
+  const defPid = hasDefSlot ? (myRoster.players || []).find(pid => resolvePos(pid) === 'DEF') : null;
   const notesParts = [];
-  if (hasKSlot)   notesParts.push(kPlayer   ? `<span style="font-size:10px;color:#94a3b8">K: <span style="color:#cbd5e1">${escHtml(displayName(kPlayer.name))}</span></span>`   : `<span style="font-size:10px;color:#ef4444">No K</span>`);
-  if (hasDefSlot) notesParts.push(defPlayer ? `<span style="font-size:10px;color:#94a3b8">D: <span style="color:#cbd5e1">${escHtml(displayName(defPlayer.name))}</span></span>` : `<span style="font-size:10px;color:#ef4444">No DEF</span>`);
-  const rosterNotes = notesParts.join('<span style="color:#2d3748;margin:0 2px">·</span>');
+  if (hasKSlot)   notesParts.push(kPid   ? `<span style="font-size:10px;color:#94a3b8;white-space:nowrap">K: <span style="color:#e2e8f0;font-weight:600">${escHtml(displayName(resolveName(kPid)))}</span></span>`   : `<span style="font-size:10px;font-weight:600;color:#ef4444">⚠ No K</span>`);
+  if (hasDefSlot) notesParts.push(defPid ? `<span style="font-size:10px;color:#94a3b8;white-space:nowrap">D: <span style="color:#e2e8f0;font-weight:600">${escHtml(displayName(resolveName(defPid)))}</span></span>` : `<span style="font-size:10px;font-weight:600;color:#ef4444">⚠ No DEF</span>`);
+  const rosterNotes = notesParts.join('<span style="color:#374151;margin:0 4px">·</span>');
 
   const displayList = starters.length ? starters : players.sort((a,b) => (a.rank??9999)-(b.rank??9999)).slice(0, 9);
   const rows = displayList.map(playerRow).join('');
@@ -3661,7 +3673,7 @@ function buildLcMyTeam(lg, data) {
       ${avgRank != null ? `<span style="font-size:10px;font-weight:600;color:#64748b">avg rk #${avgRank}</span>` : ''}
       ${projTotal > 0 ? `<span style="font-size:10px;color:#4b5563;margin-left:auto">proj ${projTotal.toFixed(1)}</span>` : ''}
     </div>
-    ${rosterNotes ? `<div style="margin-bottom:6px;display:flex;gap:8px;flex-wrap:wrap">${rosterNotes}</div>` : ''}
+    ${rosterNotes ? `<div style="margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.03);border-radius:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">${rosterNotes}</div>` : ''}
     ${rows}
   </div>`;
 }
