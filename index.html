@@ -3512,7 +3512,7 @@ function detectSeasonIssues(lg, data) {
       if (!skillPos.has(pos)) return;
       let rank = null;
       if (norm) { const c = csvPlayers.find(p => { const pn = normName(p.name); return pn === norm || NAME_ALIASES[pn] === norm || pn === NAME_ALIASES[norm]; }); if (c) rank = c.ov; }
-      if (rank == null && sInfo?.adpRank != null) rank = sInfo.adpRank;
+      // Only CSV rank counts — ADP rank is not the user's ranking, so skip it
       if (rank == null) unrankedCount++;
     });
     const hasRankedWaiver = csvPlayers.some(p => skillPos.has(p.pos) && !isRosteredCsv(p));
