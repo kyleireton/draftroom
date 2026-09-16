@@ -3580,13 +3580,41 @@ function detectWeeklyIssues(lg, data) {
   if (hasKSlotW && topWaiverK && (myK?.kRank == null || topWaiverK.rank < myK.kRank)) issues.push('better K on waivers');
 
   const hasDefSlotW = (lg.roster_positions || []).includes('DEF');
-  const myDef = hasDefSlotW ? players.find(p => p.pos === 'DEF') : null;
-  const topWaiverDef = hasDefSlotW ? Object.values(weeklyDefMap).filter(e => !isOnRoster(e.name ?? e.team ?? '')).sort((a,b) => a.rank - b.rank)[0] : null;
-  if (hasDefSlotW && topWaiverDef && (myDef?.defRank == null || topWaiverDef.rank < myDef.defRank)) issues.push('better DEF on waivers');
+  // DEF check: key weeklyDefMap by team abbreviation, so match by abbr not name
+  const rosteredDefAbbrs = new Set();
+  rosters.forEach(r => (r.players || []).forEach(pid => {
+    const pos2 = (sleeperById[pid] ? sleeperByName[sleeperById[pid]]?.pos : null) || _sleeperRawPlayers?.[pid]?.position;
+    if (pos2 === 'DEF') {
+      const abbr = toSleeperAbbr(sleeperByName[sleeperById[pid]]?.team || _sleeperRawPlayers?.[pid]?.team || pid);
+      if (abbr) rosteredDefAbbrs.add(abbr);
+    }
+  }));
+  const myDefPidW = hasDefSlotW ? (myRoster.players || []).find(pid => {
+    const pos2 = (sleeperById[pid] ? sleeperByName[sleeperById[pid]]?.pos : null) || _sleeperRawPlayers?.[pid]?.position;
+    return pos2 === 'DEF';
+  }) : null;
+  const myDefAbbrW = myDefPidW ? toSleeperAbbr(sleeperByName[sleeperById[myDefPidW]]?.team || _sleeperRawPlayers?.[myDefPidW]?.team || myDefPidW) : null;
+  const myDefEntryW = myDefAbbrW ? weeklyDefMap[myDefAbbrW] : null;
+  const topWaiverDef = hasDefSlotW
+    ? Object.entries(weeklyDefMap).filter(([abbr]) => !rosteredDefAbbrs.has(abbr)).sort((a,b) => a[1].rank - b[1].rank)[0]?.[1]
+    : null;
+  if (hasDefSlotW && topWaiverDef && (myDefEntryW == null || topWaiverDef.rank < myDefEntryW.rank)) issues.push('better DEF on waivers');
 
   return issues;
 }
 
+function scrollToLeagueCard(lid) {
+  const card = document.getElementById('ls-leagues-list')?.querySelector(`[data-lid="${lid}"]`);
+  if (!card) return;
+  if (collapsedLeagues.has(lid)) toggleLeagueCollapse(lid);
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function scrollToWeeklyCard(lid) {
+  const card = document.getElementById('ws-leagues-list')?.querySelector(`[data-lid="${lid}"]`);
+  if (!card) return;
+  if (collapsedLeagues.has(lid)) toggleLeagueCollapse(lid);
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 function rebuildSummaryBar(mode) {
   const barId = mode === 'ls' ? 'ls-summary-bar' : 'ws-summary-bar';
   const bar = document.getElementById(barId);
@@ -3597,7 +3625,7 @@ function rebuildSummaryBar(mode) {
     const data    = allLeaguesCache[lg.league_id];
     const issues  = mode === 'ls' ? detectSeasonIssues(lg, data) : detectWeeklyIssues(lg, data);
     const lid     = lg.league_id;
-    const onClick = `openLeagueDetail('${lid}')`;
+    const onClick = mode === 'ls' ? `scrollToLeagueCard('${lid}')` : `scrollToWeeklyCard('${lid}')`;
     const kd      = buildKDefFlags(lg);
     let issueCell;
     if (issues === null) {
