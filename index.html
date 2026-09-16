@@ -863,6 +863,19 @@ body {
 .env-bar-bg    { width: 52px; height: 5px; background: #1e2530; border-radius: 3px; overflow: hidden; flex-shrink: 0; }
 .env-bar-fill  { height: 100%; border-radius: 3px; }
 .env-implied   { font-size: 10px; font-weight: 700; min-width: 28px; text-align: right; }
+/* Summary bar */
+.summary-bar { background:#0d1117; border:1px solid #1e2530; border-radius:10px; overflow:hidden; margin-bottom:4px; }
+.summary-bar table { width:100%; border-collapse:collapse; font-size:11px; }
+.summary-bar th { padding:6px 10px; text-align:left; font-size:10px; font-weight:700; color:#374151; text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid #1e2530; }
+.summary-bar td { padding:6px 10px; border-bottom:1px solid #111827; vertical-align:middle; }
+.summary-bar tr:last-child td { border-bottom:none; }
+.summary-bar tr.sb-row { cursor:pointer; transition:background .12s; }
+.summary-bar tr.sb-row:hover { background:rgba(79,126,248,.08); }
+.sb-league-name { font-weight:600; color:#e2e8f0; white-space:nowrap; max-width:130px; overflow:hidden; text-overflow:ellipsis; }
+.sb-ok { color:#22c55e; font-weight:600; }
+.sb-issue { color:#fbbf24; }
+.sb-loading { color:#374151; font-style:italic; }
+
 /* Waiver panel */
 .ls-waiver { background: #111827; border: 1px solid #1e2530; border-radius: 12px; padding: 14px 16px; }
 .ls-waiver-title { font-size: 11px; font-weight: 700; color: #4b5563; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
@@ -1076,6 +1089,7 @@ body {
     <span class="ls-upload-status" id="ls-upload-status"></span>
   </div>
   <div class="ls-body">
+    <div id="ls-summary-bar"></div>
     <div id="ls-leagues-list"></div>
   </div>
 </div>
@@ -1117,6 +1131,7 @@ body {
     </div>
   </div>
   <div class="ls-body">
+    <div id="ws-summary-bar"></div>
     <div id="ws-leagues-list"></div>
   </div>
 </div>
@@ -3458,6 +3473,147 @@ function openLeagueSummary() {
   renderLeagueSummary();
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// ── League summary bar ──
+
+function detectSeasonIssues(lg, data) {
+  const issues = [];
+  if (!data?.loaded) return null; // still loading
+  const { rosters, csvPlayers, myRosterId } = data;
+  if (!myRosterId) return [];
+  const myRoster = rosters.find(r => r.roster_id === myRosterId);
+  if (!myRoster) return [];
+
+  // Build rostered sets
+  const rosteredPids  = new Set();
+  const rosteredNorms = new Set();
+  rosters.forEach(r => (r.players || []).forEach(pid => {
+    rosteredPids.add(pid);
+    const norm = sleeperById[pid];
+    if (norm) { rosteredNorms.add(norm); const al = NAME_ALIASES[norm]; if (al) rosteredNorms.add(al); }
+  }));
+  const isRosteredCsv = p => {
+    const norm = normName(p.name);
+    const sInfo = sleeperByName[norm] || (NAME_ALIASES[norm] ? sleeperByName[NAME_ALIASES[norm]] : null);
+    if (sInfo?.id && rosteredPids.has(sInfo.id)) return true;
+    if (rosteredNorms.has(norm)) return true;
+    const al = NAME_ALIASES[norm]; return !!(al && rosteredNorms.has(al));
+  };
+
+  if (csvPlayers.length) {
+    // Unranked skill players on my roster while ranked sit on waivers
+    const skillPos = new Set(['QB','RB','WR','TE']);
+    let unrankedCount = 0;
+    (myRoster.players || []).forEach(pid => {
+      const norm  = sleeperById[pid];
+      const sInfo = norm ? sleeperByName[norm] : null;
+      const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
+      if (!skillPos.has(pos)) return;
+      let rank = null;
+      if (norm) { const c = csvPlayers.find(p => { const pn = normName(p.name); return pn === norm || NAME_ALIASES[pn] === norm || pn === NAME_ALIASES[norm]; }); if (c) rank = c.ov; }
+      if (rank == null && sInfo?.adpRank != null) rank = sInfo.adpRank;
+      if (rank == null) unrankedCount++;
+    });
+    const hasRankedWaiver = csvPlayers.some(p => skillPos.has(p.pos) && !isRosteredCsv(p));
+    if (unrankedCount > 0 && hasRankedWaiver) issues.push(`${unrankedCount} unranked player${unrankedCount > 1 ? 's' : ''}, ranked waiver options`);
+
+    // Better K on waivers
+    const myKPid = (myRoster.players || []).find(pid => (sleeperByName[sleeperById[pid]]?.pos || _sleeperRawPlayers?.[pid]?.position) === 'K');
+    const myKRank = myKPid ? (() => { const norm = sleeperById[myKPid]; const c = norm && csvPlayers.find(p => normName(p.name) === norm); return c?.ov ?? null; })() : null;
+    const bestWaiverK = csvPlayers.find(p => p.pos === 'K' && !isRosteredCsv(p));
+    if (bestWaiverK && (myKRank == null || bestWaiverK.ov < myKRank)) issues.push('better K on waivers');
+
+    // Better DEF on waivers
+    const myDefPid = (myRoster.players || []).find(pid => (_sleeperRawPlayers?.[pid]?.position) === 'DEF');
+    const myDefRank = myDefPid ? (() => { const norm = sleeperById[myDefPid]; const c = norm && csvPlayers.find(p => normName(p.name) === norm); return c?.ov ?? null; })() : null;
+    const bestWaiverDef = csvPlayers.find(p => p.pos === 'DEF' && !isRosteredCsv(p));
+    if (bestWaiverDef && (myDefRank == null || bestWaiverDef.ov < myDefRank)) issues.push('better DEF on waivers');
+  }
+
+  return issues;
+}
+
+function detectWeeklyIssues(lg, data) {
+  const issues = [];
+  if (!data?.loaded) return null;
+  if (!weeklyHasRankings) return [];
+  const { rosters, myRosterId } = data;
+  if (!myRosterId) return [];
+  const myRoster = rosters.find(r => r.roster_id === myRosterId);
+  if (!myRoster) return [];
+
+  // Build player objects (reuse same pos/rank resolution as buildWeeklyMyTeamSection)
+  const rosterPositions = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
+  const players = (myRoster.players || []).map(pid => {
+    const norm  = sleeperById[pid];
+    const sInfo = norm ? sleeperByName[norm] : null;
+    const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+    const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
+    let flexRank = null, qbRank = null, defRank = null, kRank = null, posRank = null;
+    if (pos === 'QB')      { const e = lookupWeekly(name, norm, weeklyQbMap);   if (e) qbRank   = e.rank; }
+    else if (pos === 'DEF'){ const rawAbbr = sInfo?.team || _sleeperRawPlayers?.[pid]?.team || pid; const e = weeklyDefMap[toSleeperAbbr(rawAbbr)] ?? null; if (e) defRank = e.rank; }
+    else if (pos === 'K')  { const e = lookupWeekly(name, norm, weeklyKMap);    if (e) kRank    = e.rank; }
+    else {
+      const fe = lookupWeekly(name, norm, weeklyFlexMap); if (fe) flexRank = fe.rank;
+      const pm = pos === 'RB' ? weeklyRbMap : pos === 'WR' ? weeklyWrMap : pos === 'TE' ? weeklyTeMap : null;
+      if (pm) { const pe = lookupWeekly(name, norm, pm); if (pe) posRank = pe.rank; }
+    }
+    return { pid, name, pos, flexRank, posRank, qbRank, defRank, kRank, projPts: data.projections?.[pid] ?? null, team: sInfo?.team || '' };
+  });
+
+  const slotted  = assignWeeklySlots(players, rosterPositions, {});
+  const upgrades = getUpgradePids(slotted);
+  const benchUpgrades = slotted.filter(p => p.bench && upgrades.has(p.pid));
+  if (benchUpgrades.length) issues.push(`${benchUpgrades.length} bench player${benchUpgrades.length > 1 ? 's' : ''} ranked above a starter`);
+
+  // Roster K/DEF vs waiver
+  const rosteredNorms = new Set();
+  (myRoster.players || []).forEach(pid => { const n = sleeperById[pid]; if (n) { rosteredNorms.add(n); const al = NAME_ALIASES[n]; if (al) rosteredNorms.add(al); } });
+  const isOnRoster = name => { const n = normName(name); return rosteredNorms.has(n) || !!(NAME_ALIASES[n] && rosteredNorms.has(NAME_ALIASES[n])); };
+
+  const myK = players.find(p => p.pos === 'K');
+  const topWaiverK = Object.values(weeklyKMap).filter(e => !isOnRoster(e.name)).sort((a,b) => a.rank - b.rank)[0];
+  if (topWaiverK && (myK?.kRank == null || topWaiverK.rank < myK.kRank)) issues.push('better K on waivers');
+
+  const myDef = players.find(p => p.pos === 'DEF');
+  const topWaiverDef = Object.values(weeklyDefMap).filter(e => !isOnRoster(e.name ?? e.team ?? '')).sort((a,b) => a.rank - b.rank)[0];
+  if (topWaiverDef && (myDef?.defRank == null || topWaiverDef.rank < myDef.defRank)) issues.push('better DEF on waivers');
+
+  return issues;
+}
+
+function rebuildSummaryBar(mode) {
+  const barId = mode === 'ls' ? 'ls-summary-bar' : 'ws-summary-bar';
+  const bar = document.getElementById(barId);
+  if (!bar || !leagueList.length) return;
+
+  const sorted = [...leagueList].sort((a, b) => a.name.localeCompare(b.name));
+  const rows = sorted.map(lg => {
+    const data    = allLeaguesCache[lg.league_id];
+    const issues  = mode === 'ls' ? detectSeasonIssues(lg, data) : detectWeeklyIssues(lg, data);
+    const lid     = lg.league_id;
+    const onClick = `openLeagueDetail('${lid}')`;
+    const kd      = buildKDefFlags(lg);
+    let issueCell;
+    if (issues === null) {
+      issueCell = `<td class="sb-loading">Loading…</td>`;
+    } else if (issues.length === 0) {
+      issueCell = `<td class="sb-ok">✓</td>`;
+    } else {
+      issueCell = `<td class="sb-issue">${issues.map(i => `⚠ ${i}`).join('<br>')}</td>`;
+    }
+    return `<tr class="sb-row" onclick="${onClick}">
+      <td><span class="sb-league-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>${kd ? `<span style="margin-left:5px">${kd}</span>` : ''}</td>
+      ${issueCell}
+    </tr>`;
+  }).join('');
+
+  bar.innerHTML = `<div class="summary-bar"><table>
+    <thead><tr><th>League</th><th>Issues</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
 // ── Main renderer: one card per league ──
 function renderLeagueSummary() {
   const list = document.getElementById('ls-leagues-list');
@@ -3483,6 +3639,7 @@ function renderLeagueSummary() {
           loadOneLeagueSummary(lg, myUid, i);
         }
       });
+      rebuildSummaryBar('ls');
     });
   });
 }
@@ -3544,11 +3701,13 @@ async function loadOneLeagueSummary(lg, myUid, cardIndex) {
       tmp.innerHTML = buildLeagueCardHtml(lg, cacheEntry, false);
       list.children[cardIndex].replaceWith(tmp.firstElementChild);
     }
+    rebuildSummaryBar('ls');
   } catch(e) {
     const list = document.getElementById('ls-leagues-list');
     if (list && list.children[cardIndex]) {
       list.children[cardIndex].querySelector('.ls-lc-loading').textContent = 'Failed to load: ' + e.message;
     }
+    rebuildSummaryBar('ls');
   }
 }
 
@@ -3577,6 +3736,7 @@ function buildLeagueCardHtml(lg, data, isLoading) {
       <span class="ls-lc-icon">🏆</span>
       <span class="ls-lc-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>
       <span class="ls-lc-meta">${meta}</span>
+      ${buildKDefFlags(lg)}
       ${collapseBtn}
       <button class="ls-lc-open" onclick="loadLeagueDetail(${JSON.stringify(lg).replace(/"/g,'&quot;')})">Open →</button>
     </div>
@@ -3641,8 +3801,6 @@ function buildLcMyTeam(lg, data) {
   // Projected total across starters
   const projTotal = starters.reduce((s, p) => s + (p.projPts || 0), 0);
 
-  // K / DEF roster note (shared helper — resolves pos from players array built above)
-  const kDefNote = buildKDefNote(players, rosterPositions);
 
   const displayList = starters.length ? starters : players.sort((a,b) => (a.rank??9999)-(b.rank??9999)).slice(0, 9);
   const rows = displayList.map(playerRow).join('');
@@ -3654,7 +3812,6 @@ function buildLcMyTeam(lg, data) {
       ${avgRank != null ? `<span style="font-size:10px;font-weight:600;color:#64748b">avg rk #${avgRank}</span>` : ''}
       ${projTotal > 0 ? `<span style="font-size:10px;color:#4b5563;margin-left:auto">proj ${projTotal.toFixed(1)}</span>` : ''}
     </div>
-    ${kDefNote}
     ${rows}
   </div>`;
 }
@@ -3712,19 +3869,13 @@ function playerRow(p) {
 // ── Shared K/DEF roster note ──
 // playersList: array of objects with { pos, name } (already resolved)
 // rosterPositions: lg.roster_positions array
-function buildKDefNote(playersList, rosterPositions) {
-  const hasKSlot   = rosterPositions.includes('K');
-  const hasDefSlot = rosterPositions.includes('DEF');
-  if (!hasKSlot && !hasDefSlot) return '';
-
-  const kPlayer   = hasKSlot   ? playersList.find(p => p.pos === 'K')   : null;
-  const defPlayer = hasDefSlot ? playersList.find(p => p.pos === 'DEF') : null;
-  const notesParts = [];
-  if (hasKSlot)   notesParts.push(kPlayer   ? `<span style="font-size:10px;color:#94a3b8;white-space:nowrap">K: <span style="color:#e2e8f0;font-weight:600">${escHtml(displayName(kPlayer.name))}</span></span>`   : `<span style="font-size:10px;font-weight:600;color:#ef4444">⚠ No K</span>`);
-  if (hasDefSlot) notesParts.push(defPlayer ? `<span style="font-size:10px;color:#94a3b8;white-space:nowrap">D: <span style="color:#e2e8f0;font-weight:600">${escHtml(displayName(defPlayer.name))}</span></span>` : `<span style="font-size:10px;font-weight:600;color:#ef4444">⚠ No DEF</span>`);
-  if (!notesParts.length) return '';
-  const inner = notesParts.join('<span style="color:#374151;margin:0 4px">·</span>');
-  return `<div style="margin-bottom:6px;padding:4px 8px;background:rgba(255,255,255,0.03);border-radius:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">${inner}</div>`;
+// ── League-level K / DEF slot flags (shown in card header) ──
+function buildKDefFlags(lg) {
+  const pos = lg.roster_positions || [];
+  const chips = [];
+  if (pos.includes('K'))   chips.push(`<span style="font-size:9px;font-weight:700;color:#94a3b8;background:#1e2530;border:1px solid #374151;border-radius:3px;padding:1px 5px">K</span>`);
+  if (pos.includes('DEF')) chips.push(`<span style="font-size:9px;font-weight:700;color:#94a3b8;background:#1e2530;border:1px solid #374151;border-radius:3px;padding:1px 5px">D</span>`);
+  return chips.join('');
 }
 
 // ── Unranked-on-roster / ranked-on-waivers alert ──
@@ -4094,7 +4245,7 @@ function onWeeklyAllUpload(evt) {
     weeklyFlexMap = maps.flexMap;
     weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
     saveWeeklyCached(); updateWeeklyUploadStatus();
-    if (weeklyHasRankings) renderWeeklySummary();
+    if (weeklyHasRankings) { renderWeeklySummary(); rebuildSummaryBar("ws"); }
   });
   reader.readAsText(file);
 }
@@ -4118,7 +4269,7 @@ function onWeeklySeasonUpload(evt) {
       weeklySeasonPlayers = players;
       try { localStorage.setItem('dr_season_players', JSON.stringify(players.slice(0, 500))); } catch(_) {}
       updateWeeklySeasonStatus();
-      if (weeklyHasRankings) renderWeeklySummary();
+      if (weeklyHasRankings) { renderWeeklySummary(); rebuildSummaryBar("ws"); }
     }, true);
   };
   reader.readAsText(file);
@@ -4390,7 +4541,7 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
   const lid       = lg.league_id;
   const collapsed = collapsedLeagues.has(lid);
   const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Show league' : 'Hide league'}">${collapsed ? '▶ Show' : '▼ Hide'}</button>`;
-  const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span><span class="ls-lc-meta">${meta}</span>${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
+  const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span><span class="ls-lc-meta">${meta}</span>${buildKDefFlags(lg)}${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
 
   if (collapsed) return `<div class="ls-league-card" data-lid="${lid}">${hdr}</div>`;
   if (loading)   return `<div class="ls-league-card" data-lid="${lid}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
@@ -4581,7 +4732,6 @@ function buildWeeklyMyTeamSection(lg, data) {
       ${benchSeason.map(p => weeklyPlayerRow(p, false)).join('')}
     </div>` : '';
 
-  const kDefNote = buildKDefNote(players, rosterPositions);
   const myTeamHtml = `<div class="ls-lc-section">
     <div class="ls-lc-section-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
       <span>★ ${escHtml(teamName)}</span>
@@ -4589,7 +4739,6 @@ function buildWeeklyMyTeamSection(lg, data) {
       ${projTotal > 0 ? `<span style="font-size:10px;color:#4b5563;margin-left:auto">proj ${projTotal.toFixed(1)}</span>` : ''}
       ${noRankings ? `<span style="font-size:10px;color:#374151;font-style:italic">Upload CSV to see weekly ranks</span>` : ''}
     </div>
-    ${kDefNote}
     ${starterRows}
     ${bench.length ? `<div style="margin-top:6px">
       <div class="ls-lc-section-title">Bench</div>
@@ -4801,6 +4950,7 @@ function renderWeeklySummary() {
           loadOneLeagueWeekly(lg, myUid, i);
         }
       });
+      rebuildSummaryBar('ws');
     });
   });
 }
@@ -4850,7 +5000,8 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
       tmp.innerHTML = buildWeeklyLeagueCardHtml(lg, entry, false);
       list.children[cardIndex].replaceWith(tmp.firstElementChild);
     }
-  } catch(e) { console.error('[DraftRoom] loadOneLeagueWeekly:', e); }
+    rebuildSummaryBar('ws');
+  } catch(e) { console.error('[DraftRoom] loadOneLeagueWeekly:', e); rebuildSummaryBar('ws'); }
 }
 
 // ═══════════════════════════════════════════════════════════════════
