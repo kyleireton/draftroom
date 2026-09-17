@@ -3576,7 +3576,7 @@ function detectWeeklyIssues(lg, data) {
 
   // Roster K/DEF vs waiver
   const rosteredNorms = new Set();
-  (myRoster.players || []).forEach(pid => { const n = sleeperById[pid]; if (n) { rosteredNorms.add(n); const al = NAME_ALIASES[n]; if (al) rosteredNorms.add(al); } });
+  rosters.forEach(r => (r.players || []).forEach(pid => { const n = sleeperById[pid]; if (n) { rosteredNorms.add(n); const al = NAME_ALIASES[n]; if (al) rosteredNorms.add(al); } }));
   const isOnRoster = name => { const n = normName(name); return rosteredNorms.has(n) || !!(NAME_ALIASES[n] && rosteredNorms.has(NAME_ALIASES[n])); };
 
   const hasKSlotW = (lg.roster_positions || []).includes('K');
@@ -3655,7 +3655,13 @@ function rebuildSummaryBar(mode) {
     } else if (issues.length === 0) {
       issueCell = `<td class="sb-ok">✓</td>`;
     } else {
-      issueCell = `<td class="sb-issue">${issues.map(i => `⚠ ${i}`).join('<br>')}</td>`;
+      // Group "better X on waivers" into one compact line
+      const waiverIssues = issues.filter(i => i.startsWith('better ') && i.endsWith(' on waivers'));
+      const otherIssues  = issues.filter(i => !waiverIssues.includes(i));
+      const waiverParts  = waiverIssues.map(i => i.replace('better ','').replace(' on waivers',''));
+      const waiverLine   = waiverParts.length ? [`waivers: ${waiverParts.join(', ')}`] : [];
+      const allLines     = [...otherIssues, ...waiverLine];
+      issueCell = `<td class="sb-issue">${allLines.map(i => `⚠ ${i}`).join('<br>')}</td>`;
     }
     return `<tr class="sb-row" onclick="${onClick}">
       <td><span class="sb-league-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>${kd ? `<span style="margin-left:5px">${kd}</span>` : ''}<button class="sb-hide-btn" onclick="toggleSummaryLeague('${lid}',event)" title="Hide from summary">×</button></td>
