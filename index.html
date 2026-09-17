@@ -3576,8 +3576,19 @@ function detectWeeklyIssues(lg, data) {
 
   // Roster K/DEF vs waiver
   const rosteredNorms = new Set();
-  rosters.forEach(r => (r.players || []).forEach(pid => { const n = sleeperById[pid]; if (n) { rosteredNorms.add(n); const al = NAME_ALIASES[n]; if (al) rosteredNorms.add(al); } }));
-  const isOnRoster = name => { const n = normName(name); return rosteredNorms.has(n) || !!(NAME_ALIASES[n] && rosteredNorms.has(NAME_ALIASES[n])); };
+  const rosteredPidsW = new Set();
+  rosters.forEach(r => (r.players || []).forEach(pid => {
+    rosteredPidsW.add(pid);
+    const n = sleeperById[pid];
+    if (n) { rosteredNorms.add(n); const al = NAME_ALIASES[n]; if (al) rosteredNorms.add(al); }
+  }));
+  const isOnRoster = name => {
+    const n = normName(name);
+    if (rosteredNorms.has(n) || !!(NAME_ALIASES[n] && rosteredNorms.has(NAME_ALIASES[n]))) return true;
+    // Fallback: look up by Sleeper ID in case name normalisation differs between CSV and Sleeper DB
+    const sInfo = sleeperByName[n] || (NAME_ALIASES[n] ? sleeperByName[NAME_ALIASES[n]] : null);
+    return !!(sInfo?.id && rosteredPidsW.has(sInfo.id));
+  };
 
   const hasKSlotW = (lg.roster_positions || []).includes('K');
   const myK = hasKSlotW ? players.find(p => p.pos === 'K') : null;
@@ -4884,8 +4895,8 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
     });
 
   const availDefs = !hasDefSlot ? [] : Object.entries(weeklyDefMap)
-    .filter(([abbr]) => !rosteredDefAbbrs.has(abbr))
-    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 2)
+    .filter(([abbr]) => !rosteredDefAbbrs.has(abbr) && (worstDefRank == null || weeklyDefMap[abbr].rank < worstDefRank))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
     .map(([abbr, e]) => {
       const pv = weeklyPrevDefMap[abbr]; const rankDelta = pv ? pv.rank - e.rank : null;
       return { pid: abbr, name: e.name, pos: 'DEF', flexRank: null, posRank: null, posTier: null,
@@ -4894,8 +4905,8 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
     });
 
   const availKs = !hasKSlot ? [] : Object.entries(weeklyKMap)
-    .filter(([norm]) => !rosteredNorms.has(norm))
-    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 2)
+    .filter(([norm]) => !rosteredNorms.has(norm) && (worstKRank == null || weeklyKMap[norm].rank < worstKRank))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
     .map(([norm, e]) => {
       const pv = weeklyPrevKMap[norm]; const rankDelta = pv ? pv.rank - e.rank : null;
       return { pid: norm, name: e.name, pos: 'K', flexRank: null, posRank: null, posTier: null,
