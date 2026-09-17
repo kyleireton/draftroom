@@ -1091,6 +1091,7 @@ body {
   <div class="ls-upload-bar">
     <button class="ls-upload-btn" onclick="document.getElementById('ls-rankings-file').click()">↑ Upload Rankings CSV</button>
     <button class="ls-odds-btn" onclick="fetchEspnOdds(true)" style="margin-left:4px">🔄 Refresh Odds</button>
+    <button class="ls-odds-btn" onclick="refreshSleeperRosters('ls')" id="ls-refresh-btn" style="margin-left:4px">↻ Sync Rosters</button>
     <span class="ls-odds-status" id="ls-odds-status" style="margin-left:auto"></span>
     <span class="ls-upload-status" id="ls-upload-status"></span>
   </div>
@@ -1129,6 +1130,7 @@ body {
   <div class="ls-upload-bar" style="flex-direction:column;align-items:flex-start;gap:6px;padding-top:10px;padding-bottom:10px">
     <div style="display:flex;align-items:center;gap:12px">
       <button class="ls-upload-btn" onclick="document.getElementById('ws-all-file').click()">↑ Upload weekly ranks ("all.csv")</button>
+      <button class="ls-odds-btn" onclick="refreshSleeperRosters('ws')" id="ws-refresh-btn" style="margin-left:4px">↻ Sync Rosters</button>
       <span class="ls-upload-status" id="ws-upload-status">Upload weekly rankings CSV to see recommendations</span>
     </div>
     <div style="display:flex;align-items:center;gap:12px">
@@ -3692,6 +3694,22 @@ function rebuildSummaryBar(mode) {
 }
 
 // ── Main renderer: one card per league ──
+function refreshSleeperRosters(mode) {
+  const btnId = mode === 'ls' ? 'ls-refresh-btn' : 'ws-refresh-btn';
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.textContent = '↻ Syncing…'; btn.disabled = true; }
+  allLeaguesCache = {};
+  const done = () => { if (btn) { btn.textContent = '↻ Sync Rosters'; btn.disabled = false; } };
+  if (mode === 'ls') {
+    renderLeagueSummary();
+    // re-enable after a beat (loads are async)
+    setTimeout(done, 1500);
+  } else {
+    renderWeeklySummary();
+    setTimeout(done, 1500);
+  }
+}
+
 function renderLeagueSummary() {
   const list = document.getElementById('ls-leagues-list');
   if (!list) return;
