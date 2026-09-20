@@ -3626,9 +3626,11 @@ function detectWeeklyIssues(lg, data) {
   // Better QB on waivers vs my starting QB
   const myStartingQb = slotted.find(p => !p.bench && p.pos === 'QB');
   const myQbRank = myStartingQb?.qbRank ?? null;
+  const myQbTeam = myStartingQb?.pid ? toSleeperAbbr(_sleeperRawPlayers?.[myStartingQb.pid]?.team || myStartingQb.team || '') : null;
+  const myQbLocked = myQbTeam ? teamGameStarted(myQbTeam) : false;
   const topWaiverQb = Object.values(weeklyQbMap)
     .filter(e => !isOnRoster(e.name)).sort((a,b) => a.rank - b.rank)[0];
-  if (topWaiverQb && (myQbRank == null || topWaiverQb.rank < myQbRank)) issues.push('better QB on waivers');
+  if (!myQbLocked && topWaiverQb && (myQbRank == null || topWaiverQb.rank < myQbRank)) issues.push('better QB on waivers');
 
   // Better FLEX on waivers vs my worst-ranked non-QB starter
   const myNonQbStarters = slotted.filter(p => !p.bench && p.pos !== 'QB' && p.pos !== 'K' && p.pos !== 'DEF');
