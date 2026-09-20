@@ -3596,8 +3596,10 @@ function detectWeeklyIssues(lg, data) {
 
   const hasKSlotW = (lg.roster_positions || []).includes('K');
   const myK = hasKSlotW ? players.find(p => p.pos === 'K') : null;
+  const myKTeam = myK?.pid ? toSleeperAbbr(_sleeperRawPlayers?.[myK.pid]?.team || myK.team || '') : null;
+  const myKLocked = myKTeam ? teamGameStarted(myKTeam) : false;
   const topWaiverK = hasKSlotW ? Object.values(weeklyKMap).filter(e => !isOnRoster(e.name)).sort((a,b) => a.rank - b.rank)[0] : null;
-  if (hasKSlotW && topWaiverK && (myK?.kRank == null || topWaiverK.rank < myK.kRank)) issues.push('better K on waivers');
+  if (hasKSlotW && !myKLocked && topWaiverK && (myK?.kRank == null || topWaiverK.rank < myK.kRank)) issues.push('better K on waivers');
 
   const hasDefSlotW = (lg.roster_positions || []).includes('DEF');
   // DEF check: key weeklyDefMap by team abbreviation, so match by abbr not name
@@ -3618,7 +3620,8 @@ function detectWeeklyIssues(lg, data) {
   const topWaiverDef = hasDefSlotW
     ? Object.entries(weeklyDefMap).filter(([abbr]) => !rosteredDefAbbrs.has(abbr)).sort((a,b) => a[1].rank - b[1].rank)[0]?.[1]
     : null;
-  if (hasDefSlotW && topWaiverDef && (myDefEntryW == null || topWaiverDef.rank < myDefEntryW.rank)) issues.push('better DEF on waivers');
+  const myDefLocked = myDefAbbrW ? teamGameStarted(myDefAbbrW) : false;
+  if (hasDefSlotW && !myDefLocked && topWaiverDef && (myDefEntryW == null || topWaiverDef.rank < myDefEntryW.rank)) issues.push('better DEF on waivers');
 
   // Better QB on waivers vs my starting QB
   const myStartingQb = slotted.find(p => !p.bench && p.pos === 'QB');
