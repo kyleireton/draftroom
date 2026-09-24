@@ -203,15 +203,22 @@ body {
 .ld-rank i { font-style: normal; font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.5); }
 .ld-rank span { font-size: 13px; font-weight: 800; color: #fff; letter-spacing: -0.03em; line-height: 1; }
 .ld-rank.na span { font-size: 11px; color: rgba(255,255,255,0.3); }
-/* Strength-of-schedule chips (ROS / Next 4) on the league card */
-.sos-chips { display: flex; gap: 3px; margin-top: 2px; }
+/* Strength-of-schedule chips (ROS / Next 4) on the league card.
+   The number is the thing being scanned, so it carries the size and the label stays quiet. */
+.sos-chips { display: flex; gap: 3px; margin-top: 3px; }
 .sos-chip {
-  flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 2px;
-  border-radius: 3px; padding: 1px 3px; background: rgba(0,0,0,0.34); min-width: 0;
+  flex: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 2px;
+  border-radius: 3px; padding: 2px 4px; background: rgba(0,0,0,0.42); min-width: 0;
 }
-.sos-chip i { font-style: normal; font-size: 7px; font-weight: 800; letter-spacing: 0.04em; color: rgba(255,255,255,0.42); }
-.sos-chip b { font-size: 10px; font-weight: 800; line-height: 1.1; }
-.sos-chip.na b { color: #2d3748; }
+.sos-chip i {
+  font-style: normal; font-size: 8px; font-weight: 700; letter-spacing: 0.03em;
+  color: rgba(255,255,255,0.4); flex-shrink: 0;
+}
+.sos-chip b {
+  font-size: 14px; font-weight: 800; line-height: 1;
+  letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+}
+.sos-chip.na b { color: rgba(255,255,255,0.25); }
 .ld-proj { font-size: 9px; color: #4b5563; }
 .ld-proj span { color: #a3e635; }
 .ld-card.bench-card { opacity: 0.55; }
@@ -224,7 +231,7 @@ body {
 
 /* Waiver wire sidebar */
 .ld-wire {
-  width: 164px; flex-shrink: 0; background: #0d1117;
+  width: 216px; flex-shrink: 0; background: #0d1117;
   border-left: 1px solid #1e2530; display: flex; flex-direction: column; overflow: hidden;
 }
 .ld-wire-hdr { padding: 10px 12px 6px; border-bottom: 1px solid #1e2530; }
@@ -241,13 +248,20 @@ body {
 .wire-list { flex: 1; overflow-y: auto; padding: 6px 8px; }
 .wire-card {
   background: #111827; border: 1px solid #1e2530; border-radius: 6px;
-  padding: 5px 8px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px 6px; margin-bottom: 4px; display: flex; flex-direction: column; gap: 4px;
 }
+/* The name row; the schedule chips sit full-width beneath it so they line up card to card. */
+.wire-top { display: flex; align-items: center; gap: 6px; }
 .wire-rank { font-size: 10px; font-weight: 700; color: #374151; min-width: 32px; display:flex; flex-direction:column; align-items:center; gap:2px; }
 .wire-rank.value { color: #f59e0b; }
 .wire-info { flex: 1; min-width: 0; }
-.wire-name { font-size: 10px; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wire-name { font-size: 11px; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wire-pos-team { font-size: 9px; color: #4b5563; }
+/* Chips are wider here than on the 128px roster column, so let the number breathe. */
+.wire-card .sos-chips { margin-top: 0; gap: 4px; }
+.wire-card .sos-chip { padding: 2px 6px; }
+.wire-card .sos-chip i { font-size: 8px; }
+.wire-card .sos-chip b { font-size: 15px; }
 .wire-proj { font-size: 9px; color: #4b5563; white-space: nowrap; }
 .wire-proj span { color: #a3e635; }
 
@@ -3261,7 +3275,7 @@ function renderWaiverWire() {
       const pos = p.pos || '?';
       const _flexPos = new Set(['RB','WR','TE']);
       if (wirePositionFilter !== 'ALL' && !(wirePositionFilter === 'FLEX' ? _flexPos.has(pos) : pos === wirePositionFilter)) return;
-      wire.push({ name: p.name, pos, rank: p.ov, tier: p.tier, projPts: pid ? (leagueProjections[pid] ?? null) : null, pid });
+      wire.push({ name: p.name, pos, rank: p.ov, tier: p.tier, projPts: pid ? (leagueProjections[pid] ?? null) : null, pid, team: p.team || sInfo?.team || '' });
     });
   } else {
     // No CSV — show by projections only
@@ -3272,7 +3286,7 @@ function renderWaiverWire() {
       const pos = sInfo?.pos || '?';
       const _flexPos = new Set(['RB','WR','TE']);
       if (wirePositionFilter !== 'ALL' && !(wirePositionFilter === 'FLEX' ? _flexPos.has(pos) : pos === wirePositionFilter)) return;
-      wire.push({ name: norm || pid, pos, rank: null, projPts: pts, pid });
+      wire.push({ name: norm || pid, pos, rank: null, projPts: pts, pid, team: sInfo?.team || '' });
     });
     wire.sort((a, b) => (b.projPts ?? -1) - (a.projPts ?? -1));
   }
@@ -3293,12 +3307,15 @@ function renderWaiverWire() {
       ? `<span style="font-size:8px;font-weight:700;color:#fff;background:${tierHsl(p.tier)};border-radius:3px;padding:1px 3px;line-height:1.2">T${p.tier}</span>`
       : '';
     el.innerHTML = `
-      <div class="wire-rank${isValue ? ' value' : ''}">${p.rank ? `#${p.rank}` : '—'}${tierChip}</div>
-      <div class="wire-info">
-        <div class="wire-name">${escHtml(dn)}</div>
-        <div class="wire-pos-team">${p.pos}</div>
+      <div class="wire-top">
+        <div class="wire-rank${isValue ? ' value' : ''}">${p.rank ? `#${p.rank}` : '—'}${tierChip}</div>
+        <div class="wire-info">
+          <div class="wire-name">${escHtml(dn)}</div>
+          <div class="wire-pos-team">${p.pos}${p.team ? ` · ${p.team}` : ''}</div>
+        </div>
+        ${p.projPts != null ? `<div class="wire-proj"><span>${p.projPts}</span></div>` : ''}
       </div>
-      ${p.projPts != null ? `<div class="wire-proj"><span>${p.projPts}</span></div>` : ''}`;
+      ${buildSosChips(p)}`;
     listEl.appendChild(el);
   });
 
@@ -3620,7 +3637,7 @@ function detectWeeklyIssues(lg, data) {
     let flexRank = null, qbRank = null, defRank = null, kRank = null, posRank = null;
     if (pos === 'QB')      { const e = lookupWeekly(name, norm, weeklyQbMap);   if (e) qbRank   = e.rank; }
     else if (pos === 'DEF'){ const rawAbbr = sInfo?.team || _sleeperRawPlayers?.[pid]?.team || pid; const e = weeklyDefMap[toSleeperAbbr(rawAbbr)] ?? null; if (e) defRank = e.rank; }
-    else if (pos === 'K')  { const e = lookupWeekly(name, norm, weeklyKMap);    if (e) kRank    = e.rank; }
+    else if (pos === 'K')  { const e = lookupWeeklyK(pid);                       if (e) kRank    = e.rank; }
     else {
       const fe = lookupWeekly(name, norm, weeklyFlexMap); if (fe) flexRank = fe.rank;
       const pm = pos === 'RB' ? weeklyRbMap : pos === 'WR' ? weeklyWrMap : pos === 'TE' ? weeklyTeMap : null;
@@ -3654,7 +3671,11 @@ function detectWeeklyIssues(lg, data) {
   const myK = hasKSlotW ? players.find(p => p.pos === 'K') : null;
   const myKTeam = myK?.pid ? toSleeperAbbr(_sleeperRawPlayers?.[myK.pid]?.team || myK.team || '') : null;
   const myKLocked = myKTeam ? teamGameStarted(myKTeam) : false;
-  const topWaiverK = hasKSlotW ? Object.values(weeklyKMap).filter(e => !isOnRoster(e.name)).sort((a,b) => a.rank - b.rank)[0] : null;
+  const rosteredKTeams = rosteredKickerTeams(rosters);
+  const topWaiverK = hasKSlotW
+    ? Object.entries(weeklyKMap).filter(([abbr]) => !rosteredKTeams.has(abbr))
+        .sort((a,b) => a[1].rank - b[1].rank)[0]?.[1] ?? null
+    : null;
   if (hasKSlotW && !myKLocked && topWaiverK && (myK?.kRank == null || topWaiverK.rank < myK.kRank)) issues.push('better K on waivers');
 
   const hasDefSlotW = (lg.roster_positions || []).includes('DEF');
@@ -4177,7 +4198,7 @@ let weeklyRbMap      = {};  // normName → {rank,tier,name,team,opp,total,match
 let weeklyWrMap      = {};  // normName → {rank,tier,name,team,opp,total,matchup}
 let weeklyTeMap      = {};  // normName → {rank,tier,name,team,opp,total,matchup}
 let weeklyDefMap     = {};  // teamAbbr → {rank,tier,name,opp,spread}
-let weeklyKMap       = {};  // normName → {rank,name,team,projection,opp}
+let weeklyKMap       = {};  // teamAbbr → {rank,name,lastNorm,team,projection,opp}
 let weeklyFlexMap    = {};  // normName → {rank,pos,name,team,opp,total,matchup}
 let weeklyNflWeek    = null;
 let weeklyNflYear    = new Date().getFullYear();
@@ -4195,6 +4216,7 @@ let weeklySeasonPlayers = []; // season-long rankings from half-ppr.csv / full-s
 let weeklyPrevFlexMap = {}; let weeklyPrevQbMap = {}; let weeklyPrevRbMap = {};
 let weeklyPrevWrMap  = {}; let weeklyPrevTeMap = {}; let weeklyPrevDefMap = {};
 let weeklyPrevKMap   = {}; let weeklyPrevSeasonMap = {}; // normName → prevOv
+const WEEKLY_CACHE_VERSION = 2;  // bump when the shape of any weekly map changes
 // Game-start lock data — store kickoff times per NFL week, compare to local clock at render time
 let weeklyGameKickoffs        = {}; // Sleeper-canonical teamAbbr → kickoff timestamp ms
 let weeklyGameKickoffFetchedAt = 0;
@@ -4275,15 +4297,19 @@ function toggleLeagueCollapse(leagueId) {
   try {
     const raw = localStorage.getItem('dr_weekly_rankings');
     if (!raw) return;
-    const { qb, rb, wr, te, def, k, flex } = JSON.parse(raw);
+    const { v, qb, rb, wr, te, def, k, flex } = JSON.parse(raw);
+    // v2 re-keyed the kicker map from last name to team abbreviation. Older payloads hold
+    // unusable kicker keys, but every other map is still fine — drop only the kickers.
+    const staleK = v !== WEEKLY_CACHE_VERSION;
     weeklyQbMap   = qb   || {};
     weeklyRbMap   = rb   || {};
     weeklyWrMap   = wr   || {};
     weeklyTeMap   = te   || {};
     weeklyDefMap  = def  || {};
-    weeklyKMap    = k    || {};
+    weeklyKMap    = staleK ? {} : (k || {});
     weeklyFlexMap = flex || {};
     weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
+    if (staleK) saveWeeklyCached();  // re-stamp so this only happens once
   } catch(_) {}
   // Restore season-long rankings
   try {
@@ -4293,7 +4319,7 @@ function toggleLeagueCollapse(leagueId) {
 })();
 
 function saveWeeklyCached() {
-  try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap, def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap })); } catch(_) {}
+  try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ v: WEEKLY_CACHE_VERSION, qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap, def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap })); } catch(_) {}
 }
 
 // Matchup scale: 1 = best matchup (easiest), 32 = worst (hardest)
@@ -4311,6 +4337,43 @@ function matchupLabel(m) {
 }
 
 // Name lookup in weekly maps (tries norm + aliases)
+// Kickers are keyed by team, not by name (the source file gives last names only).
+function teamOfPid(pid) {
+  const norm  = sleeperById[pid];
+  const sInfo = norm ? sleeperByName[norm] : null;
+  const raw   = sInfo?.team || _sleeperRawPlayers?.[pid]?.team || '';
+  return raw ? toSleeperAbbr(String(raw).toUpperCase()) : null;
+}
+function lookupWeeklyK(pidOrTeam) {
+  if (!pidOrTeam) return null;
+  const direct = weeklyKMap[toSleeperAbbr(String(pidOrTeam).toUpperCase())];
+  if (direct) return direct;
+  const t = teamOfPid(pidOrTeam);
+  return t ? (weeklyKMap[t] || null) : null;
+}
+// Set of team abbreviations whose kicker is already on someone's roster.
+function rosteredKickerTeams(rosters) {
+  const set = new Set();
+  (rosters || []).forEach(r => (r.players || []).forEach(pid => {
+    const norm = sleeperById[pid];
+    const pos  = (norm ? sleeperByName[norm]?.pos : null) || _sleeperRawPlayers?.[pid]?.position;
+    if (pos !== 'K') return;
+    const t = teamOfPid(pid);
+    if (t) set.add(t);
+  }));
+  return set;
+}
+// The source gives "Aubrey"; prefer Sleeper's full name for that team's kicker when we have it.
+function kickerDisplayName(entry) {
+  if (!entry) return '';
+  for (const [key, info] of Object.entries(sleeperByName)) {
+    if (info.pos !== 'K' || !info.team) continue;
+    if (toSleeperAbbr(info.team.toUpperCase()) !== entry.team) continue;
+    if (key.split(' ').slice(-1)[0] === entry.lastNorm) return info.fullName || entry.name;
+  }
+  return `${entry.name} (${entry.team})`;
+}
+
 function lookupWeekly(name, norm, map) {
   if (!map) return null;
   const n = normName(name);
@@ -4378,10 +4441,14 @@ function parseWeeklyAllCsv(text, callback) {
             team: g(r,'FLEX Team').toUpperCase(), opp: g(r,'FLEX Opponent').toUpperCase(),
             total: parseFloat(g(r,'FLEX Total'))||null, matchup: parseInt(g(r,'FLEX Matchup'))||null };
       }
+      // The K Player column carries a LAST NAME ONLY ("Aubrey", "Bass", "Loop"), so it can
+      // never be matched against Sleeper's full names. Kickers are one per team, so key this
+      // map by team abbreviation the same way DEF is — no name matching involved.
       const kName = g(r,'K Player'); if (kName) {
-        const key = normName(kName); if (key)
-          kMap[key] = { rank: parseInt(g(r,'K Rank'))||32, name: kName,
-            team: g(r,'K Team').toUpperCase(), projection: parseFloat(g(r,'K Projection'))||null,
+        const kAbbr = toSleeperAbbr(g(r,'K Team').toUpperCase());
+        if (kAbbr)
+          kMap[kAbbr] = { rank: parseInt(g(r,'K Rank'))||32, name: kName, lastNorm: normName(kName),
+            team: kAbbr, projection: parseFloat(g(r,'K Projection'))||null,
             opp: g(r,'K Opponent').toUpperCase() };
       }
     });
@@ -4747,7 +4814,7 @@ function buildWeeklyMyTeamSection(lg, data) {
       const e = weeklyDefMap[teamAbbr] ?? weeklyDefMap[toSleeperAbbr(pid)] ?? null;
       if (e) { defRank = e.rank; defTier = e.tier; defSpread = e.spread; opp = e.opp; }
     } else if (pos === 'K') {
-      const e = lookupWeekly(name, norm, weeklyKMap);
+      const e = lookupWeeklyK(pid);
       if (e) { kRank = e.rank; kProjection = e.projection; opp = e.opp; }
     } else {
       const fe = lookupWeekly(name, norm, weeklyFlexMap);
@@ -4763,7 +4830,7 @@ function buildWeeklyMyTeamSection(lg, data) {
       const rawAbbr = sInfo?.team || _sleeperRawPlayers?.[pid]?.team || pid;
       const pv = weeklyPrevDefMap[toSleeperAbbr(rawAbbr)] ?? weeklyPrevDefMap[toSleeperAbbr(pid)]; if (pv) rankDelta = pv.rank - defRank;
     } else if (pos === 'K' && kRank != null) {
-      const pv = weeklyPrevKMap[norm] ?? weeklyPrevKMap[normName(name)]; if (pv) rankDelta = pv.rank - kRank;
+      const pv = weeklyPrevKMap[teamOfPid(pid)]; if (pv) rankDelta = pv.rank - kRank;
     } else if (['RB','WR','TE'].includes(pos)) {
       const pv = weeklyPrevFlexMap[norm] ?? weeklyPrevFlexMap[normName(name)];
       const curRank = flexRank ?? posRank; if (pv && curRank != null) rankDelta = pv.rank - curRank;
@@ -4988,12 +5055,13 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
         opp: e.opp, rankDelta, projPts: null };
     });
 
+  const rosteredKTeams = rosteredKickerTeams(rosters);
   const availKs = !hasKSlot ? [] : Object.entries(weeklyKMap)
-    .filter(([norm]) => !rosteredNorms.has(norm) && (!worstKRank || weeklyKMap[norm].rank < worstKRank))
+    .filter(([abbr, e]) => !rosteredKTeams.has(abbr) && (!worstKRank || e.rank < worstKRank))
     .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
-    .map(([norm, e]) => {
-      const pv = weeklyPrevKMap[norm]; const rankDelta = pv ? pv.rank - e.rank : null;
-      return { pid: norm, name: e.name, pos: 'K', flexRank: null, posRank: null, posTier: null,
+    .map(([abbr, e]) => {
+      const pv = weeklyPrevKMap[abbr]; const rankDelta = pv ? pv.rank - e.rank : null;
+      return { pid: abbr, name: kickerDisplayName(e), pos: 'K', flexRank: null, posRank: null, posTier: null,
         qbRank: null, qbTier: null, defRank: null, defTier: null, kRank: e.rank, kProjection: e.projection,
         opp: e.opp, rankDelta, projPts: null };
     });
@@ -5010,7 +5078,7 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
   if (hasDefSlot || hasKSlot) {
     const cols = [hasDefSlot, hasKSlot].filter(Boolean).length;
     const defCol = hasDefSlot ? `<div><div class="ls-lc-section-title">⚡ Top DEF</div>${availDefs.map(p => weeklyPlayerRow(p, (p.defRank ?? 9999) < worstDefRank)).join('') || noRankPlayer('No upgrades on waivers')}</div>` : '';
-    const kCol   = hasKSlot   ? `<div><div class="ls-lc-section-title">⚡ Top K</div>${availKs.map(p => weeklyPlayerRow(p, (p.kRank ?? 9999) < worstKRank)).join('') || noRankPlayer('No upgrades on waivers')}</div>` : '';
+    const kCol   = hasKSlot   ? `<div><div class="ls-lc-section-title">⚡ Top K</div>${availKs.map(p => weeklyPlayerRow(p, (p.kRank ?? 9999) < worstKRank)).join('') || noRankPlayer(Object.keys(weeklyKMap).length ? 'No upgrades on waivers' : 'Re-upload weekly ranks for K')}</div>` : '';
     extraGrid = `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:8px;margin-top:8px">${defCol}${kCol}</div>`;
   }
 
