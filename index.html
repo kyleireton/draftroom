@@ -196,8 +196,22 @@ body {
 .ld-lname { font-size: 11px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ld-pos-row { display: flex; align-items: center; gap: 3px; margin-top: 1px; }
 .ld-card-stats { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
-.ld-rank { font-size: 9px; color: #374151; }
-.ld-rank span { color: #60a5fa; }
+.ld-rank {
+  display: inline-flex; align-items: baseline; gap: 1px;
+  background: rgba(0,0,0,0.45); border-radius: 3px; padding: 1px 5px 2px;
+}
+.ld-rank i { font-style: normal; font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.5); }
+.ld-rank span { font-size: 13px; font-weight: 800; color: #fff; letter-spacing: -0.03em; line-height: 1; }
+.ld-rank.na span { font-size: 11px; color: rgba(255,255,255,0.3); }
+/* Strength-of-schedule chips (ROS / Next 4) on the league card */
+.sos-chips { display: flex; gap: 3px; margin-top: 2px; }
+.sos-chip {
+  flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 2px;
+  border-radius: 3px; padding: 1px 3px; background: rgba(0,0,0,0.34); min-width: 0;
+}
+.sos-chip i { font-style: normal; font-size: 7px; font-weight: 800; letter-spacing: 0.04em; color: rgba(255,255,255,0.42); }
+.sos-chip b { font-size: 10px; font-weight: 800; line-height: 1.1; }
+.sos-chip.na b { color: #2d3748; }
 .ld-proj { font-size: 9px; color: #4b5563; }
 .ld-proj span { color: #a3e635; }
 .ld-card.bench-card { opacity: 0.55; }
@@ -1355,6 +1369,38 @@ let draftAdpByNorm    = {};   // normName → { adp, adpRank }
 let _sleeperRawPlayers = null; // cached raw /v1/players/nfl response — shared between draft + league
 let rawCsvText     = '';     // raw CSV text — persisted to Supabase for session restore
 
+// ── Strength of schedule (ROS / Next 4) ──
+// These columns are a property of (NFL team + position), not of the individual player:
+// every Jacksonville WR shares one value. Keying by team+pos avoids name matching entirely.
+let sosByTeamPos = {};   // "DET|RB" -> { ros, n4 }
+function buildSosIndex(players) {
+  const idx = {};
+  (players || []).forEach(p => {
+    if (p.ros == null && p.n4 == null) return;
+    const team = p.team ? toSleeperAbbr(p.team.toUpperCase()) : null;
+    if (!team || !p.pos) return;
+    idx[`${team}|${p.pos}`] = { ros: p.ros ?? null, n4: p.n4 ?? null };
+  });
+  if (Object.keys(idx).length) {
+    sosByTeamPos = idx;
+    console.log(`[SOS] indexed ${Object.keys(idx).length} team+position groups`);
+  }
+}
+function lookupSos(team, pos) {
+  if (!team || !pos) return null;
+  return sosByTeamPos[`${toSleeperAbbr(String(team).toUpperCase())}|${pos}`] || null;
+}
+// Reuse the weekly matchup thresholds so schedule difficulty reads the same everywhere.
+function sosColor(v) { return v == null ? '#374151' : v <= 10 ? '#22c55e' : v <= 21 ? '#eab308' : '#ef4444'; }
+function buildSosChips(p) {
+  const s = lookupSos(p.team, p.pos);
+  const chip = (lbl, v) => v == null
+    ? `<span class="sos-chip na"><i>${lbl}</i><b>—</b></span>`
+    : `<span class="sos-chip"><i>${lbl}</i><b style="color:${sosColor(v)}">${v}</b></span>`;
+  if (!s) return '';
+  return `<div class="sos-chips" title="Strength of schedule — 1 = easiest. ROS: rest of season. N4: next four games.">${chip('ROS', s.ros)}${chip('N4', s.n4)}</div>`;
+}
+
 // ── Hardcoded 2026 NFL schedule data ──
 const NFL_2026 = {
   bye: {
@@ -1496,7 +1542,7 @@ function loadCSV(file) {
       const get = (r, ...names) => {
         const keys = Object.keys(r);
         for (const n of names) {
-          const k = keys.find(k => k.trim().toLowerCase() === n.toLowerCase());
+          const k = keys.find(k => k.replace(/^\uFEFF/, '').trim().toLowerCase() === n.toLowerCase());
           if (k !== undefined) return (r[k] || '').trim();
         }
         return '';
@@ -1507,10 +1553,13 @@ function loadCSV(file) {
         ov:   parseInt(get(r,'Overall','overall','Rank','rank') || '0'),
         name: get(r,'Player','player','Name','name'),
         pos:  get(r,'Position','position','Pos','pos').toUpperCase(),
-        pr:   parseInt(get(r,'Pos Rank','pos rank','posrank','pos_rank','PosRank') || '0'),
+        pr:   parseInt(get(r,'Pos Rank','pos rank','posrank','pos_rank','PosRank','Positional Rank','positional rank') || '0'),
         tier: parseInt(get(r,'Tier','tier') || '0'),
         team: get(r,'Team','team','NFL Team','nfl_team').toUpperCase() || null,
         bye:  parseInt(get(r,'Bye','bye','Bye Week','bye_week') || '0') || null,
+        ros:  parseInt(get(r,'ROS','ros','Rest of Season') || '0') || null,
+        n4:   parseInt(get(r,'Next 4','next 4','next4','Next4') || '0') || null,
+        ppg:  (v => isNaN(v) ? null : v)(parseFloat(get(r,'PPG','ppg','Pts/G'))),
         _row: i,   // preserve original row order for rank fallback
       })).filter(p => p.name);
 
@@ -1524,6 +1573,7 @@ function loadCSV(file) {
       const hasTier = parsed.some(p => p.tier > 0);
       if (!hasTier) parsed.forEach((p, i) => { p.tier = Math.ceil((i + 1) / (teamCount || 12)); });
 
+      buildSosIndex(parsed);
       csvPlayers = parsed;
       document.getElementById('csv-done-msg').textContent = `✓ ${csvPlayers.length} players loaded`;
       csvDrop.classList.add('done');
@@ -1542,7 +1592,7 @@ function parseCSVText(text, onComplete, leagueMode = false) {
       const get = (r, ...names) => {
         const keys = Object.keys(r);
         for (const n of names) {
-          const k = keys.find(k => k.trim().toLowerCase() === n.toLowerCase());
+          const k = keys.find(k => k.replace(/^\uFEFF/, '').trim().toLowerCase() === n.toLowerCase());
           if (k !== undefined) return (r[k] || '').trim();
         }
         return '';
@@ -1551,10 +1601,13 @@ function parseCSVText(text, onComplete, leagueMode = false) {
         ov:   parseInt(get(r,'Overall','overall','Rank','rank') || '0'),
         name: get(r,'Player','player','Name','name'),
         pos:  get(r,'Position','position','Pos','pos').toUpperCase(),
-        pr:   parseInt(get(r,'Pos Rank','pos rank','posrank','pos_rank','PosRank') || '0'),
+        pr:   parseInt(get(r,'Pos Rank','pos rank','posrank','pos_rank','PosRank','Positional Rank','positional rank') || '0'),
         tier: parseInt(get(r,'Tier','tier') || '0'),
         team: get(r,'Team','team','NFL Team','nfl_team').toUpperCase() || null,
         bye:  parseInt(get(r,'Bye','bye','Bye Week','bye_week') || '0') || null,
+        ros:  parseInt(get(r,'ROS','ros','Rest of Season') || '0') || null,
+        n4:   parseInt(get(r,'Next 4','next 4','next4','Next4') || '0') || null,
+        ppg:  (v => isNaN(v) ? null : v)(parseFloat(get(r,'PPG','ppg','Pts/G'))),
         _row: i,
       })).filter(p => p.name);
       const hasRank = parsed.some(p => p.ov > 0);
@@ -1562,6 +1615,7 @@ function parseCSVText(text, onComplete, leagueMode = false) {
       parsed = parsed.filter(p => p.ov > 0).sort((a, b) => a.ov - b.ov);
       const hasTier = parsed.some(p => p.tier > 0);
       if (!hasTier) parsed.forEach((p, i) => { p.tier = Math.ceil((i + 1) / (teamCount || 12)); });
+      buildSosIndex(parsed);
       if (leagueMode) {
         if (onComplete) onComplete(parsed);
         return;
@@ -3111,8 +3165,7 @@ function buildRosterPlayers(roster) {
       });
       if (csvP) { rank = csvP.ov; tier = csvP.tier; }
     }
-    // Fallback: use Sleeper adpRank when no CSV uploaded
-    if (rank == null && sInfo?.adpRank != null) rank = sInfo.adpRank;
+    // No ADP fallback in season views — ADP describes a draft, not a rest-of-season rank.
     const proj = leagueProjections[pid] ?? null;
     const pos  = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
     return { pid, name: displayStr, pos, rank, tier: tier ?? null, projPts: proj, team: sInfo?.team || '' };
@@ -3128,7 +3181,9 @@ function buildLeagueCard(p, isBench) {
   const sp       = dn.indexOf(' ');
   const fn       = sp >= 0 ? dn.slice(0, sp) : dn;
   const ln       = sp >= 0 ? dn.slice(sp + 1) : '';
-  const rankHtml = p.rank ? `Rk <span>#${p.rank}</span>` : `<span style="color:#2d3748">—</span>`;
+  const rankHtml = p.rank
+    ? `<span class="ld-rank"><i>#</i><span>${p.rank}</span></span>`
+    : `<span class="ld-rank na"><span>—</span></span>`;
   const projHtml = p.projPts != null ? `<span>${p.projPts}</span>` : '';
   const slotLbl  = p.slot && p.slot !== 'BN' ? `<span style="font-size:8px;color:#2d3748;margin-left:auto">${p.slot === 'SUPER_FLEX' ? 'SF' : p.slot}</span>` : '';
   const sfClass = (p.slot === 'SUPER_FLEX') ? ' ld-card-sf' : '';
@@ -3143,8 +3198,9 @@ function buildLeagueCard(p, isBench) {
           ${p.team ? `<span style="font-size:8px;color:#374151">${p.team}</span>` : ''}
           ${slotLbl}
         </div>
+        ${buildSosChips(p)}
         <div class="ld-card-stats">
-          <span class="ld-rank">${rankHtml}</span>
+          ${rankHtml}
           ${projHtml ? `<span class="ld-proj">proj <span>${projHtml}</span></span>` : ''}
         </div>
       </div>
@@ -3871,7 +3927,6 @@ function buildLcMyTeam(lg, data) {
       });
       if (csvP) { rank = csvP.ov; tier = csvP.tier; }
     }
-    if (rank == null && sInfo?.adpRank != null) rank = sInfo.adpRank;
     return { pid, name, pos: sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?',
              rank, tier: tier ?? null, projPts: projections[pid] ?? null, team: sInfo?.team || '' };
   });
@@ -4022,7 +4077,6 @@ function buildLcUpgradeAlert(lg, data) {
       });
       if (csvP) rank = csvP.ov;
     }
-    if (rank == null && sInfo?.adpRank != null) rank = sInfo.adpRank;
     if (rank == null) {
       const dn = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
       buckets[bucket].push(dn);
@@ -4374,7 +4428,7 @@ function onWeeklySeasonUpload(evt) {
       // Snapshot before overwriting
       if (weeklySeasonPlayers.length) {
         weeklyPrevSeasonMap = {};
-        weeklySeasonPlayers.forEach(sp => { weeklyPrevSeasonMap[normName(sp.name)] = sp.ov ?? sp.adpRank; });
+        weeklySeasonPlayers.forEach(sp => { weeklyPrevSeasonMap[normName(sp.name)] = sp.ov; });
       }
       weeklySeasonPlayers = players;
       try { localStorage.setItem('dr_season_players', JSON.stringify(players.slice(0, 500))); } catch(_) {}
@@ -4782,7 +4836,7 @@ function buildWeeklyMyTeamSection(lg, data) {
     const seasonByNorm = {};
     seasonPool.forEach(sp => {
       const key = normName(sp.name);
-      const val = { ov: sp.ov ?? sp.adpRank, tier: sp.tier ?? null };
+      const val = { ov: sp.ov, tier: sp.tier ?? null };
       seasonByNorm[key] = val;
       const alt = NAME_ALIASES[key];
       if (alt && !seasonByNorm[alt]) seasonByNorm[alt] = val;
@@ -4811,7 +4865,7 @@ function buildWeeklyMyTeamSection(lg, data) {
     if (aPos != null && bPos != null) return aPos - bPos;
     if (aPos != null) return -1;
     if (bPos != null) return 1;
-    // Tier 3: season ADP / unranked
+    // Tier 3: season rank / unranked
     return (a.seasonOv ?? Infinity) - (b.seasonOv ?? Infinity);
   });
 
@@ -4897,8 +4951,9 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
 
   const noRankPlayer = (label) => `<div class="ls-lc-loading">${label}</div>`;
 
+  // Only list players who actually beat someone startable — same rule Top DEF / Top K already use.
   const availQbs = Object.entries(weeklyQbMap)
-    .filter(([norm]) => !rosteredNorms.has(norm))
+    .filter(([norm, e]) => !rosteredNorms.has(norm) && (!worstQbRank || e.rank < worstQbRank))
     .sort((a, b) => a[1].rank - b[1].rank).slice(0, 2)
     .map(([norm, e]) => {
       const pv = weeklyPrevQbMap[norm]; const rankDelta = pv ? pv.rank - e.rank : null;
@@ -4907,9 +4962,13 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
         opp: e.opp, total: e.total, matchup: e.matchup, rankDelta, projPts: null };
     });
 
+  // Bar = the worst startable rank this player could displace: his own positional slot,
+  // or the flex slot, whichever is easier to beat. 0 means we can't tell, so don't filter.
+  const flexBar = e => Math.max(worstByPos[e.pos] ?? 0, worstFlexOccupant || 0);
   const availFlex = Object.entries(weeklyFlexMap)
-    .filter(([norm, e]) => !rosteredNorms.has(norm) && ['RB','WR','TE'].includes(e.pos))
-    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
+    .filter(([norm, e]) => !rosteredNorms.has(norm) && ['RB','WR','TE'].includes(e.pos)
+                        && (!flexBar(e) || e.rank < flexBar(e)))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 5)
     .map(([norm, e]) => {
       const posMap = e.pos === 'RB' ? weeklyRbMap : e.pos === 'WR' ? weeklyWrMap : weeklyTeMap;
       const pe = posMap[norm] || null;
@@ -4920,7 +4979,7 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
     });
 
   const availDefs = !hasDefSlot ? [] : Object.entries(weeklyDefMap)
-    .filter(([abbr]) => !rosteredDefAbbrs.has(abbr) && (worstDefRank == null || weeklyDefMap[abbr].rank < worstDefRank))
+    .filter(([abbr]) => !rosteredDefAbbrs.has(abbr) && (!worstDefRank || weeklyDefMap[abbr].rank < worstDefRank))
     .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
     .map(([abbr, e]) => {
       const pv = weeklyPrevDefMap[abbr]; const rankDelta = pv ? pv.rank - e.rank : null;
@@ -4930,7 +4989,7 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
     });
 
   const availKs = !hasKSlot ? [] : Object.entries(weeklyKMap)
-    .filter(([norm]) => !rosteredNorms.has(norm) && (worstKRank == null || weeklyKMap[norm].rank < worstKRank))
+    .filter(([norm]) => !rosteredNorms.has(norm) && (!worstKRank || weeklyKMap[norm].rank < worstKRank))
     .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
     .map(([norm, e]) => {
       const pv = weeklyPrevKMap[norm]; const rankDelta = pv ? pv.rank - e.rank : null;
@@ -4939,8 +4998,8 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
         opp: e.opp, rankDelta, projPts: null };
     });
 
-  const qbRows   = availQbs.map(p => weeklyPlayerRow(p, (p.qbRank ?? 9999) < worstQbRank)).join('') || noRankPlayer('No QBs available');
-  const flexRows = availFlex.map(p => weeklyPlayerRow(p, (p.flexRank ?? 9999) < Math.max(worstByPos[p.pos] ?? 0, worstFlexOccupant))).join('') || noRankPlayer('None available');
+  const qbRows   = availQbs.map(p => weeklyPlayerRow(p, true)).join('')   || noRankPlayer('No upgrades on waivers');
+  const flexRows = availFlex.map(p => weeklyPlayerRow(p, true)).join('')   || noRankPlayer('No upgrades on waivers');
 
   const mainGrid = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
     <div><div class="ls-lc-section-title">⚡ Top QB</div>${qbRows}</div>
@@ -4950,8 +5009,8 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
   let extraGrid = '';
   if (hasDefSlot || hasKSlot) {
     const cols = [hasDefSlot, hasKSlot].filter(Boolean).length;
-    const defCol = hasDefSlot ? `<div><div class="ls-lc-section-title">⚡ Top DEF</div>${availDefs.map(p => weeklyPlayerRow(p, (p.defRank ?? 9999) < worstDefRank)).join('') || noRankPlayer('None available')}</div>` : '';
-    const kCol   = hasKSlot   ? `<div><div class="ls-lc-section-title">⚡ Top K</div>${availKs.map(p => weeklyPlayerRow(p, (p.kRank ?? 9999) < worstKRank)).join('') || noRankPlayer('None available')}</div>` : '';
+    const defCol = hasDefSlot ? `<div><div class="ls-lc-section-title">⚡ Top DEF</div>${availDefs.map(p => weeklyPlayerRow(p, (p.defRank ?? 9999) < worstDefRank)).join('') || noRankPlayer('No upgrades on waivers')}</div>` : '';
+    const kCol   = hasKSlot   ? `<div><div class="ls-lc-section-title">⚡ Top K</div>${availKs.map(p => weeklyPlayerRow(p, (p.kRank ?? 9999) < worstKRank)).join('') || noRankPlayer('No upgrades on waivers')}</div>` : '';
     extraGrid = `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:8px;margin-top:8px">${defCol}${kCol}</div>`;
   }
 
@@ -4973,17 +5032,17 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
 
     const sQbs = seasonPool
       .filter(p => p.pos === 'QB' && !isRostered(normName(p.name)))
-      .sort((a, b) => (a.ov ?? a.adpRank ?? 999) - (b.ov ?? b.adpRank ?? 999))
+      .sort((a, b) => (a.ov ?? 999) - (b.ov ?? 999))
       .slice(0, 4);
 
     const sFlex = seasonPool
       .filter(p => FLEX_POS.has(p.pos) && !isRostered(normName(p.name)))
-      .sort((a, b) => (a.ov ?? a.adpRank ?? 999) - (b.ov ?? b.adpRank ?? 999))
+      .sort((a, b) => (a.ov ?? 999) - (b.ov ?? 999))
       .slice(0, 8);
 
     const seasonRow = p => {
       const posColor = POS_CHIP_COLOR[p.pos] || '#374151';
-      const ov = p.ov ?? p.adpRank;
+      const ov = p.ov;
       const tier = p.tier ?? null;
       // Solid chip at reduced saturation (desaturated version of pos color) to distinguish from weekly
       const chipBg = posColor + '55'; // ~33% opacity fill
@@ -5007,7 +5066,7 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
     const withSeasonDelta = p => {
       const key = normName(p.name);
       const prevOv = weeklyPrevSeasonMap[key] ?? (NAME_ALIASES[key] ? weeklyPrevSeasonMap[NAME_ALIASES[key]] : null);
-      const curOv  = p.ov ?? p.adpRank;
+      const curOv  = p.ov;
       return { ...p, seasonDelta: (prevOv != null && curOv != null) ? prevOv - curOv : null };
     };
 
@@ -5016,7 +5075,7 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
     const flexSeasonRows = sFlex.map(p => seasonRow(withSeasonDelta(p))).join('')  || noSeason;
 
     seasonHtml = `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #2d3748">
-      <div style="font-size:9px;color:#64748b;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:700">📋 Season rankings (ADP)</div>
+      <div style="font-size:9px;color:#64748b;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:700">📋 Season rankings</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div><div class="ls-lc-section-title" style="color:#94a3b8">QB</div>${qbSeasonRows}</div>
         <div><div class="ls-lc-section-title" style="color:#94a3b8">Flex</div>${flexSeasonRows}</div>
