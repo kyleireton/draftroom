@@ -902,10 +902,16 @@ body {
 .summary-bar tr.sb-row:hover { background:rgba(79,126,248,.08); }
 .sb-league-name { font-weight:600; color:#e2e8f0; white-space:nowrap; max-width:130px; overflow:hidden; text-overflow:ellipsis; }
 .sb-ok { color:#22c55e; font-weight:600; }
+/* League + My team shrink to their content so the standing sits beside the name;
+   Issues absorbs the remaining width. */
+.summary-bar th:nth-child(1), .summary-bar td:nth-child(1),
+.summary-bar th:nth-child(2), .summary-bar td:nth-child(2) { width:1%; white-space:nowrap; }
+.summary-bar th:nth-child(2), .summary-bar td:nth-child(2) { padding-left:4px; }
+.summary-bar th:nth-child(3), .summary-bar td:nth-child(3) { width:auto; }
 .sb-standing { white-space:nowrap; }
 .sb-st-rank { font-weight:800; font-size:12px; font-variant-numeric:tabular-nums; }
-.sb-st-sub { color:#4b5563; font-size:10px; margin-left:5px; font-variant-numeric:tabular-nums; }
-.sb-st-na { color:#374151; }
+.sb-st-sub { color:#94a3b8; font-size:11px; font-weight:600; margin-left:6px; font-variant-numeric:tabular-nums; }
+.sb-st-na { color:#64748b; }
 /* At-a-glance standing pill next to a league name in the summary cards */
 .lc-standing {
   display:inline-block; margin-left:6px; padding:1px 6px; border-radius:10px;
