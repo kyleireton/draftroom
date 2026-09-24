@@ -3584,21 +3584,34 @@ function detectSeasonIssues(lg, data) {
   };
 
   if (csvPlayers.length) {
-    // Unranked skill players on my roster while ranked sit on waivers
-    const skillPos = new Set(['QB','RB','WR','TE']);
-    let unrankedCount = 0;
+    // Unranked players on my roster while ranked ones sit on waivers — bucketed, because
+    // QB and flex are not interchangeable: an available ranked QB says nothing about
+    // whether to replace an unranked WR. Same split the per-league card already uses.
+    const bucketOf = pos => pos === 'QB' ? 'QB' : ['RB','WR','TE'].includes(pos) ? 'flex' : null;
+    const unranked = { QB: 0, flex: 0 };
     (myRoster.players || []).forEach(pid => {
       const norm  = sleeperById[pid];
       const sInfo = norm ? sleeperByName[norm] : null;
       const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
-      if (!skillPos.has(pos)) return;
+      const bucket = bucketOf(pos);
+      if (!bucket) return;
       let rank = null;
       if (norm) { const c = csvPlayers.find(p => { const pn = normName(p.name); return pn === norm || NAME_ALIASES[pn] === norm || pn === NAME_ALIASES[norm]; }); if (c) rank = c.ov; }
       // Only CSV rank counts — ADP rank is not the user's ranking, so skip it
-      if (rank == null) unrankedCount++;
+      if (rank == null) unranked[bucket]++;
     });
-    const hasRankedWaiver = csvPlayers.some(p => skillPos.has(p.pos) && !isRosteredCsv(p));
-    if (unrankedCount > 0 && hasRankedWaiver) issues.push(`${unrankedCount} unranked player${unrankedCount > 1 ? 's' : ''}, ranked waiver options`);
+    // Ranked options on waivers, counted in the same buckets
+    const availRanked = { QB: 0, flex: 0 };
+    csvPlayers.forEach(p => {
+      const bucket = bucketOf(p.pos);
+      if (!bucket || isRosteredCsv(p)) return;
+      availRanked[bucket]++;
+    });
+    // A bucket only fires when BOTH sides of the comparison are in that bucket.
+    const unrankedParts = ['QB','flex']
+      .filter(b => unranked[b] > 0 && availRanked[b] > 0)
+      .map(b => `${unranked[b]} ${b}`);
+    if (unrankedParts.length) issues.push(`unranked w/ ranked options: ${unrankedParts.join(', ')}`);
 
     // Better K on waivers
     const myKPid = (myRoster.players || []).find(pid => (sleeperByName[sleeperById[pid]]?.pos || _sleeperRawPlayers?.[pid]?.position) === 'K');
@@ -5106,7 +5119,7 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
     const sFlex = seasonPool
       .filter(p => FLEX_POS.has(p.pos) && !isRostered(normName(p.name)))
       .sort((a, b) => (a.ov ?? 999) - (b.ov ?? 999))
-      .slice(0, 8);
+      .slice(0, 6);
 
     const seasonRow = p => {
       const posColor = POS_CHIP_COLOR[p.pos] || '#374151';
