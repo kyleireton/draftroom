@@ -902,6 +902,18 @@ body {
 .summary-bar tr.sb-row:hover { background:rgba(79,126,248,.08); }
 .sb-league-name { font-weight:600; color:#e2e8f0; white-space:nowrap; max-width:130px; overflow:hidden; text-overflow:ellipsis; }
 .sb-ok { color:#22c55e; font-weight:600; }
+.sb-standing { white-space:nowrap; }
+.sb-st-rank { font-weight:800; font-size:12px; font-variant-numeric:tabular-nums; }
+.sb-st-sub { color:#4b5563; font-size:10px; margin-left:5px; font-variant-numeric:tabular-nums; }
+.sb-st-na { color:#374151; }
+/* At-a-glance standing pill next to a league name in the summary cards */
+.lc-standing {
+  display:inline-block; margin-left:6px; padding:1px 6px; border-radius:10px;
+  border:1px solid #2d3748; background:rgba(255,255,255,.04);
+  font-size:10px; font-weight:800; letter-spacing:-.01em; flex-shrink:0;
+  font-variant-numeric:tabular-nums; vertical-align:middle;
+}
+.lc-standing.na { color:#374151; }
 .sb-issue { color:#fbbf24; }
 .sb-loading { color:#374151; font-style:italic; }
 .sb-hide-btn { display:none; background:none; border:none; color:#4b5563; cursor:pointer; font-size:12px; margin-left:4px; padding:0 3px; line-height:1; border-radius:3px; }
@@ -2933,6 +2945,111 @@ function assignSlots(playerObjs, rosterPositions) {
 }
 
 // ── Render league detail ──
+function calcAvg(vals) {
+  return vals.length ? (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1) : null;
+}
+function stdDev(vals) {
+  if (vals.length < 2) return null;
+  const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+  return Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length).toFixed(1);
+}
+
+// An unranked STARTER at a skill position is a hole, but dropping him from the average
+// made the team look better than it is. Give him one tier worse than anything in the
+// loaded rankings so he drags the average down proportionately. Derived from the data,
+// not hardcoded, because tier granularity differs between ranking files. K and DEF stay
+// excluded (a rankings file with no kickers would otherwise shift every team equally),
+// and the bench is left as ranked-players-only on purpose.
+const SYNTH_TIER_POS = new Set(['QB','RB','WR','TE']);
+function syntheticTierFor(csvPlayers) {
+  const mx = (csvPlayers || []).reduce((m, p) => (p.tier != null && p.tier > m ? p.tier : m), 0);
+  return mx > 0 ? mx + 1 : null;
+}
+
+// Rank every roster in a league by average starter tier (lower = better).
+// Returns entries sorted best→worst with .rank already assigned. This is the single
+// source of truth for both the league detail board and the at-a-glance summary chips.
+function computeTierStandings(rosterPositions, rosters, csvPlayers, projections) {
+  const synth = syntheticTierFor(csvPlayers);
+  const rosterScores = [];
+  (rosters || []).forEach(roster => {
+    const players  = buildRosterPlayersFrom(roster, csvPlayers, projections);
+    const slots    = assignSlots(players, rosterPositions);
+    slots.forEach(pl => {
+      pl.effTier = pl.tier != null ? pl.tier
+        : (!pl.bench && synth != null && SYNTH_TIER_POS.has(pl.pos)) ? synth
+        : null;
+      pl.tierSynthetic = pl.tier == null && pl.effTier != null;
+    });
+    const starters   = slots.filter(pl => !pl.bench);
+    const score      = starters.reduce((sum, pl) => sum + (pl.rank ?? 300), 0);
+    const tieredVals = starters.filter(pl => pl.effTier != null).map(pl => pl.effTier);
+    rosterScores.push({ roster, players, slots, score,
+      avgTier: calcAvg(tieredVals), sdTier: stdDev(tieredVals),
+      synthCount: starters.filter(pl => pl.tierSynthetic).length });
+  });
+
+  // Sort by avgTier ascending (lower = better); nulls last
+  rosterScores.sort((a, b) => {
+    if (a.avgTier == null && b.avgTier == null) return 0;
+    if (a.avgTier == null) return 1;
+    if (b.avgTier == null) return -1;
+    return parseFloat(a.avgTier) - parseFloat(b.avgTier);
+  });
+  rosterScores.forEach((rs, i) => { rs.rank = i + 1; });
+  return rosterScores;
+}
+
+// ── My team's standing in one league, for the summary table + card headers ──
+// Prefers that league's own saved rankings so the chip always agrees with the number
+// shown inside the league detail view; falls back to the global season upload, which
+// is what the weekly cache has (loadOneLeagueWeekly does not fetch per-league rankings).
+function myTierStanding(lg, data) {
+  if (!data?.loaded) return undefined;              // still loading
+  if (!data.myRosterId) return null;
+  if ('_standing' in data) return data._standing;   // memoised: rebuildSummaryBar re-runs a lot
+  const pool = (data.csvPlayers && data.csvPlayers.length)
+    ? data.csvPlayers
+    : (typeof weeklySeasonPlayers !== 'undefined' ? weeklySeasonPlayers : []);
+  let out = null;
+  if (pool.length) {
+    const rp = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
+    const st = computeTierStandings(rp, data.rosters, pool, data.projections || {});
+    const mine = st.find(r => r.roster.roster_id === data.myRosterId);
+    if (mine && mine.avgTier != null) {
+      const ranked = st.filter(r => r.avgTier != null).map(r => parseFloat(r.avgTier));
+      out = {
+        rank: mine.rank, of: st.length, avgTier: mine.avgTier,
+        leagueAvg: ranked.length ? (ranked.reduce((a, b) => a + b, 0) / ranked.length).toFixed(1) : null,
+        wins:   mine.roster.settings?.wins   ?? 0,
+        losses: mine.roster.settings?.losses ?? 0,
+        synthCount: mine.synthCount || 0,
+      };
+    }
+  }
+  data._standing = out;
+  return out;
+}
+
+function standingColor(rank, of) {
+  if (!of || of <= 1) return '#94a3b8';
+  const pct = (rank - 1) / (of - 1);
+  return pct <= 0.34 ? '#22c55e' : pct <= 0.67 ? '#eab308' : '#ef4444';
+}
+function standingTitle(st) {
+  const bits = [`#${st.rank} of ${st.of} by avg starter tier`, `yours ${st.avgTier}`];
+  if (st.leagueAvg) bits.push(`league ${st.leagueAvg}`);
+  if (st.synthCount) bits.push(`${st.synthCount} unranked starter${st.synthCount > 1 ? 's' : ''} counted`);
+  return bits.join(' · ');
+}
+// Compact pill for a league card header.
+function buildStandingChip(st) {
+  if (st === undefined) return `<span class="lc-standing na">…</span>`;
+  if (!st) return `<span class="lc-standing na" title="Upload rankings to rank the teams in this league">—</span>`;
+  const c = standingColor(st.rank, st.of);
+  return `<span class="lc-standing" style="color:${c};border-color:${c}55;background:${c}14" title="${escHtml(standingTitle(st))}">#${st.rank}/${st.of}</span>`;
+}
+
 function renderLeagueDetail() {
   const grid = document.getElementById('ld-team-grid');
   grid.innerHTML = '';
@@ -2943,40 +3060,7 @@ function renderLeagueDetail() {
   const userMap = {};
   leagueUsers.forEach(u => { userMap[u.user_id] = u.display_name || u.username || 'Team'; });
 
-  // Helpers — hoisted so they're available in the rosterScores loop too
-  function calcAvg(vals) {
-    return vals.length ? (vals.reduce((s, v) => s + v, 0) / vals.length).toFixed(1) : null;
-  }
-  function stdDev(vals) {
-    if (vals.length < 2) return null;
-    const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
-    return Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length).toFixed(1);
-  }
-
-  // Build roster score for sorting: sum of starter ranks (lower=better)
-  const rosterScores = [];
-  leagueRosters.forEach(roster => {
-    const players    = buildRosterPlayers(roster);
-    const slots      = assignSlots(players, rosterPositions);
-    const starters   = slots.filter(p => !p.bench);
-    const score      = starters.reduce((sum, p) => sum + (p.rank ?? 300), 0);
-    // Avg + SD tier: starters with a tier only (skip K/DEF/unranked)
-    const tieredVals = starters.filter(p => p.tier != null).map(p => p.tier);
-    const avgTier    = calcAvg(tieredVals);   // "x.x" string
-    const sdTier     = stdDev(tieredVals);    // "x.x" string or null
-    rosterScores.push({ roster, players, slots, score, avgTier, sdTier });
-  });
-
-  // Sort by avgTier ascending (lower = better); nulls last
-  rosterScores.sort((a, b) => {
-    if (a.avgTier == null && b.avgTier == null) return 0;
-    if (a.avgTier == null) return 1;
-    if (b.avgTier == null) return -1;
-    return parseFloat(a.avgTier) - parseFloat(b.avgTier);
-  });
-
-  // Assign rank BEFORE pin-splice so #1 reflects actual tier ranking
-  rosterScores.forEach((rs, i) => { rs.rank = i + 1; });
+  const rosterScores = computeTierStandings(rosterPositions, leagueRosters, leagueCsvPlayers, leagueProjections);
 
   // Pin user's team to the far left, rest remains best→worst
   const myIdx = rosterScores.findIndex(r => r.roster.roster_id === leagueMyRosterId);
@@ -3010,7 +3094,7 @@ function renderLeagueDetail() {
     rs.posAvgs = {};
     posGroupDefs.forEach(({ label, slots }) => {
       const starters = rs.slots.filter(p => !p.bench && slots.has(p.slot));
-      const tiered   = starters.filter(p => p.tier != null).map(p => p.tier);
+      const tiered   = starters.filter(p => p.effTier != null).map(p => p.effTier);
       rs.posAvgs[label] = {
         avg:   calcAvg(tiered),   // stored as "x.x" string, null if none
         sd:    stdDev(tiered),
@@ -3021,6 +3105,7 @@ function renderLeagueDetail() {
     // Bench depth: group by player position, ranked players only
     rs.benchAvgs = {};
     benchPosDefs.forEach(pos => {
+      // Bench stays ranked-players-only — no synthetic tier here, by design.
       const bench  = rs.slots.filter(p => p.bench && p.pos === pos && p.tier != null);
       const tiers  = bench.map(p => p.tier);
       rs.benchAvgs[pos] = {
@@ -3165,6 +3250,13 @@ function toTitleCase(str) {
 }
 
 function buildRosterPlayers(roster) {
+  return buildRosterPlayersFrom(roster, leagueCsvPlayers, leagueProjections);
+}
+// Same thing, but with the ranking set and projections passed in — lets the all-leagues
+// summary compute standings from allLeaguesCache without touching the single-league globals.
+function buildRosterPlayersFrom(roster, csvSource, projSource) {
+  const leagueCsvPlayers  = csvSource  || [];
+  const leagueProjections = projSource || {};
   const players = (roster.players || []).map(pid => {
     const norm  = sleeperById[pid];
     const sInfo = norm ? sleeperByName[norm] : null;
@@ -3759,6 +3851,13 @@ function rebuildSummaryBar(mode) {
     const lid     = lg.league_id;
     const onClick = mode === 'ls' ? `scrollToLeagueCard('${lid}')` : `scrollToWeeklyCard('${lid}')`;
     const kd      = buildKDefFlags(lg);
+    const st      = myTierStanding(lg, data);
+    let standingCell;
+    if (st === undefined)  standingCell = `<td class="sb-standing sb-st-na">…</td>`;
+    else if (!st)          standingCell = `<td class="sb-standing sb-st-na" title="Upload rankings to rank the teams in this league">—</td>`;
+    else standingCell = `<td class="sb-standing" title="${escHtml(standingTitle(st))}">`
+      + `<span class="sb-st-rank" style="color:${standingColor(st.rank, st.of)}">#${st.rank}/${st.of}</span>`
+      + `<span class="sb-st-sub">T${st.avgTier} · ${st.wins}-${st.losses}</span></td>`;
     let issueCell;
     if (issues === null) {
       issueCell = `<td class="sb-loading">Loading…</td>`;
@@ -3775,6 +3874,7 @@ function rebuildSummaryBar(mode) {
     }
     return `<tr class="sb-row" onclick="${onClick}">
       <td><span class="sb-league-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>${kd ? `<span style="margin-left:5px">${kd}</span>` : ''}<button class="sb-hide-btn" onclick="toggleSummaryLeague('${lid}',event)" title="Hide from summary">×</button></td>
+      ${standingCell}
       ${issueCell}
     </tr>`;
   }).join('');
@@ -3783,7 +3883,7 @@ function rebuildSummaryBar(mode) {
     ? `<div class="sb-show-all" onclick="hiddenSummaryLeagues.clear();localStorage.removeItem('dr_hidden_summary');rebuildSummaryBar('ls');rebuildSummaryBar('ws')">Show ${hiddenCount} hidden league${hiddenCount>1?'s':''}</div>`
     : '';
   bar.innerHTML = `<div class="summary-bar"><table>
-    <thead><tr><th>League</th><th>Issues</th></tr></thead>
+    <thead><tr><th>League</th><th>My team</th><th>Issues</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>${showAllFooter}</div>`;
 }
@@ -3927,6 +4027,7 @@ function buildLeagueCardHtml(lg, data, isLoading) {
     <div class="ls-lc-header">
       <span class="ls-lc-icon">🏆</span>
       <span class="ls-lc-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>
+      ${buildStandingChip(myTierStanding(lg, data))}
       <span class="ls-lc-meta">${meta}</span>
       ${buildKDefFlags(lg)}
       ${collapseBtn}
@@ -4511,6 +4612,7 @@ function onWeeklySeasonUpload(evt) {
         weeklySeasonPlayers.forEach(sp => { weeklyPrevSeasonMap[normName(sp.name)] = sp.ov; });
       }
       weeklySeasonPlayers = players;
+      Object.values(allLeaguesCache).forEach(e => { if (e) delete e._standing; });
       try { localStorage.setItem('dr_season_players', JSON.stringify(players.slice(0, 500))); } catch(_) {}
       updateWeeklySeasonStatus();
       if (weeklyHasRankings) { renderWeeklySummary(); rebuildSummaryBar("ws"); }
@@ -4785,7 +4887,7 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
   const lid       = lg.league_id;
   const collapsed = collapsedLeagues.has(lid);
   const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Show league' : 'Hide league'}">${collapsed ? '▶ Show' : '▼ Hide'}</button>`;
-  const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span><span class="ls-lc-meta">${meta}</span>${buildKDefFlags(lg)}${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
+  const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span>${buildStandingChip(myTierStanding(lg, data))}<span class="ls-lc-meta">${meta}</span>${buildKDefFlags(lg)}${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
 
   if (collapsed) return `<div class="ls-league-card" data-lid="${lid}">${hdr}</div>`;
   if (loading)   return `<div class="ls-league-card" data-lid="${lid}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
