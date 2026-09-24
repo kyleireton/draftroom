@@ -909,9 +909,19 @@ body {
 .summary-bar th:nth-child(2), .summary-bar td:nth-child(2) { padding-left:4px; }
 .summary-bar th:nth-child(3), .summary-bar td:nth-child(3) { width:auto; }
 .sb-standing { white-space:nowrap; }
+.sb-st-top { display:flex; align-items:baseline; gap:7px; }
 .sb-st-rank { font-weight:800; font-size:12px; font-variant-numeric:tabular-nums; }
-.sb-st-sub { color:#94a3b8; font-size:11px; font-weight:600; margin-left:6px; font-variant-numeric:tabular-nums; }
-.sb-st-na { color:#64748b; }
+.sb-st-val  { font-weight:800; font-size:14px; color:#f1f5f9; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+.sb-st-rec  { font-weight:700; font-size:11px; color:#94a3b8; font-variant-numeric:tabular-nums; }
+.sb-st-dist { display:flex; align-items:center; gap:6px; margin-top:3px; }
+.sb-st-sub  { color:#94a3b8; font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; }
+.sb-st-na   { color:#64748b; }
+/* best (left) → worst (right); tick = league mean, block = my team */
+.sb-rangebar { position:relative; width:46px; height:6px; border-radius:3px; background:#1e2530;
+  border:1px solid #2d3748; flex-shrink:0; }
+.sb-rangebar i { position:absolute; top:-2px; width:1px; height:8px; background:#64748b; }
+.sb-rangebar b { position:absolute; top:-2px; width:3px; height:8px; border-radius:1px;
+  transform:translateX(-1px); box-shadow:0 0 0 1px rgba(0,0,0,.5); }
 /* At-a-glance standing pill next to a league name in the summary cards */
 .lc-standing {
   display:inline-block; margin-left:6px; padding:1px 6px; border-radius:10px;
@@ -3026,7 +3036,8 @@ function myTierStanding(lg, data) {
       const ranked = st.filter(r => r.avgTier != null).map(r => parseFloat(r.avgTier));
       out = {
         rank: mine.rank, of: st.length, avgTier: mine.avgTier,
-        leagueAvg: ranked.length ? (ranked.reduce((a, b) => a + b, 0) / ranked.length).toFixed(1) : null,
+        value: parseFloat(mine.avgTier), decimals: 1, prefix: 'T', label: 'avg starter tier',
+        ...spreadOf(ranked),
         wins:   mine.roster.settings?.wins   ?? 0,
         losses: mine.roster.settings?.losses ?? 0,
         synthCount: mine.synthCount || 0,
@@ -3037,16 +3048,132 @@ function myTierStanding(lg, data) {
   return out;
 }
 
+// ── Weekly lineup standings ─────────────────────────────────────────────────
+// Weekly tiers aren't comparable across positions (QB runs 1-6, flex positional tiers
+// run deeper, DEF to 5), so instead of averaging tiers we normalise each starter's
+// weekly rank by the size of the pool that could fill his slot:
+//     share = weeklyRank / (teams x slots of that type)
+// Under 1.0 = he'd start anywhere in this league; over 1.0 = below replacement.
+// That IS comparable across QB and flex, which is the whole problem this solves.
+function weeklyPoolSizes(lg) {
+  const slots = lg.roster_positions || [];
+  const teams = lg.total_rosters || 12;
+  const qbSlots   = slots.filter(x => x === 'QB' || x === 'SUPER_FLEX').length;
+  const flexSlots = slots.filter(x => ['RB','WR','TE','FLEX','REC_FLEX','WRRB_FLEX','SUPER_FLEX'].includes(x)).length;
+  return { qb: teams * Math.max(1, qbSlots), flex: teams * Math.max(1, flexSlots) };
+}
+
+// Resolve weekly ranks for every player on a roster (same resolution detectWeeklyIssues uses).
+function buildWeeklyPlayers(roster) {
+  return (roster.players || []).map(pid => {
+    const norm  = sleeperById[pid];
+    const sInfo = norm ? sleeperByName[norm] : null;
+    const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+    const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
+    let flexRank = null, posRank = null, qbRank = null, defRank = null, kRank = null;
+    if (pos === 'QB')       { const e = lookupWeekly(name, norm, weeklyQbMap); if (e) qbRank = e.rank; }
+    else if (pos === 'DEF') { const ab = toSleeperAbbr(sInfo?.team || _sleeperRawPlayers?.[pid]?.team || pid);
+                              const e = weeklyDefMap[ab]; if (e) defRank = e.rank; }
+    else if (pos === 'K')   { const e = lookupWeeklyK(pid); if (e) kRank = e.rank; }
+    else {
+      const fe = lookupWeekly(name, norm, weeklyFlexMap); if (fe) flexRank = fe.rank;
+      const pm = pos === 'RB' ? weeklyRbMap : pos === 'WR' ? weeklyWrMap : pos === 'TE' ? weeklyTeMap : null;
+      if (pm) { const pe = lookupWeekly(name, norm, pm); if (pe) posRank = pe.rank; }
+    }
+    return { pid, name, pos, flexRank, posRank, qbRank, defRank, kRank, projPts: null, team: sInfo?.team || '' };
+  });
+}
+
+function computeWeeklyStandings(lg, rosters) {
+  const rp   = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
+  const pool = weeklyPoolSizes(lg);
+  // An unranked starter falls just past the end of his ranking list, so his share
+  // lands above 1.0 on its own — no synthetic-tier rule needed here.
+  const qbMiss   = Object.keys(weeklyQbMap).length   + 1;
+  const flexMiss = Object.keys(weeklyFlexMap).length + 1;
+  const out = [];
+  (rosters || []).forEach(roster => {
+    const slotted  = assignWeeklySlots(buildWeeklyPlayers(roster), rp, {});
+    const starters = slotted.filter(p => !p.bench && p.pos !== 'K' && p.pos !== 'DEF');
+    const shares = starters.map(p => p.pos === 'QB'
+      ? (p.qbRank   ?? qbMiss)   / pool.qb
+      : (p.flexRank ?? flexMiss) / pool.flex);
+    out.push({ roster, slotted,
+      score: shares.length ? shares.reduce((a, b) => a + b, 0) / shares.length : null,
+      n: shares.length });
+  });
+  out.sort((a, b) => (a.score == null) - (b.score == null) || (a.score - b.score));
+  out.forEach((r, i) => { r.rank = i + 1; });
+  return out;
+}
+
+// Distribution of a league's scores, for the range read-out beside my own value.
+function spreadOf(values) {
+  if (!values.length) return null;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const sd = values.length > 1
+    ? Math.sqrt(values.reduce((a, v) => a + (v - mean) ** 2, 0) / values.length) : 0;
+  return { best: Math.min(...values), worst: Math.max(...values), mean, sd };
+}
+
+function myWeeklyStanding(lg, data) {
+  if (!data?.loaded) return undefined;
+  if (!data.myRosterId) return null;
+  if ('_wkStanding' in data) return data._wkStanding;
+  let out = null;
+  if (weeklyHasRankings) {
+    const st   = computeWeeklyStandings(lg, data.rosters);
+    const mine = st.find(r => r.roster.roster_id === data.myRosterId);
+    const vals = st.filter(r => r.score != null).map(r => r.score);
+    if (mine && mine.score != null) {
+      out = { rank: mine.rank, of: st.length, value: mine.score, decimals: 2, prefix: '', label: 'avg startable share',
+              ...spreadOf(vals),
+              wins: mine.roster.settings?.wins ?? 0, losses: mine.roster.settings?.losses ?? 0 };
+    }
+  }
+  data._wkStanding = out;
+  return out;
+}
+
 function standingColor(rank, of) {
   if (!of || of <= 1) return '#94a3b8';
   const pct = (rank - 1) / (of - 1);
   return pct <= 0.34 ? '#22c55e' : pct <= 0.67 ? '#eab308' : '#ef4444';
 }
+function fmtStand(v, d) { return v == null ? '—' : v.toFixed(d); }
 function standingTitle(st) {
-  const bits = [`#${st.rank} of ${st.of} by avg starter tier`, `yours ${st.avgTier}`];
-  if (st.leagueAvg) bits.push(`league ${st.leagueAvg}`);
+  const d = st.decimals ?? 1;
+  const bits = [`#${st.rank} of ${st.of} by ${st.label || 'score'} (lower is better)`,
+                `yours ${fmtStand(st.value, d)}`];
+  if (st.best  != null) bits.push(`best ${fmtStand(st.best, d)}`);
+  if (st.worst != null) bits.push(`worst ${fmtStand(st.worst, d)}`);
+  if (st.mean  != null) bits.push(`league mean ${fmtStand(st.mean, d)} ±${fmtStand(st.sd, d)}`);
   if (st.synthCount) bits.push(`${st.synthCount} unranked starter${st.synthCount > 1 ? 's' : ''} counted`);
   return bits.join(' · ');
+}
+
+// Summary-table cell: rank + my own value on top, the league's spread beneath.
+// Lower is better throughout, so the bar runs best (left) to worst (right).
+function buildStandingCell(st) {
+  if (st === undefined) return `<td class="sb-standing sb-st-na">…</td>`;
+  if (!st) return `<td class="sb-standing sb-st-na" title="Upload rankings to rank the teams in this league">—</td>`;
+  const d = st.decimals ?? 1, c = standingColor(st.rank, st.of);
+  const span = (st.worst != null && st.best != null) ? (st.worst - st.best) : 0;
+  const pctOf = v => span > 0 ? Math.max(0, Math.min(100, ((v - st.best) / span) * 100)) : 50;
+  const bar = st.best == null ? '' :
+    `<span class="sb-rangebar"><i style="left:${pctOf(st.mean).toFixed(0)}%"></i>`
+    + `<b style="left:${pctOf(st.value).toFixed(0)}%;background:${c}"></b></span>`;
+  const dist = st.best == null ? '' :
+    `<span class="sb-st-sub">${fmtStand(st.best, d)}–${fmtStand(st.worst, d)}`
+    + ` · &mu;${fmtStand(st.mean, d)} ±${fmtStand(st.sd, d)}</span>`;
+  return `<td class="sb-standing" title="${escHtml(standingTitle(st))}">`
+    + `<div class="sb-st-top">`
+    +   `<span class="sb-st-rank" style="color:${c}">#${st.rank}/${st.of}</span>`
+    +   `<span class="sb-st-val">${st.prefix || ''}${fmtStand(st.value, d)}</span>`
+    +   `<span class="sb-st-rec">${st.wins}-${st.losses}</span>`
+    + `</div>`
+    + (bar || dist ? `<div class="sb-st-dist">${bar}${dist}</div>` : '')
+    + `</td>`;
 }
 // Compact pill for a league card header.
 function buildStandingChip(st) {
@@ -3857,13 +3984,9 @@ function rebuildSummaryBar(mode) {
     const lid     = lg.league_id;
     const onClick = mode === 'ls' ? `scrollToLeagueCard('${lid}')` : `scrollToWeeklyCard('${lid}')`;
     const kd      = buildKDefFlags(lg);
-    const st      = myTierStanding(lg, data);
-    let standingCell;
-    if (st === undefined)  standingCell = `<td class="sb-standing sb-st-na">…</td>`;
-    else if (!st)          standingCell = `<td class="sb-standing sb-st-na" title="Upload rankings to rank the teams in this league">—</td>`;
-    else standingCell = `<td class="sb-standing" title="${escHtml(standingTitle(st))}">`
-      + `<span class="sb-st-rank" style="color:${standingColor(st.rank, st.of)}">#${st.rank}/${st.of}</span>`
-      + `<span class="sb-st-sub">T${st.avgTier} · ${st.wins}-${st.losses}</span></td>`;
+    // Season ranks the roster by tier; Start/Sit ranks the lineup you've actually set.
+    const st            = mode === 'ls' ? myTierStanding(lg, data) : myWeeklyStanding(lg, data);
+    const standingCell  = buildStandingCell(st);
     let issueCell;
     if (issues === null) {
       issueCell = `<td class="sb-loading">Loading…</td>`;
@@ -3889,7 +4012,7 @@ function rebuildSummaryBar(mode) {
     ? `<div class="sb-show-all" onclick="hiddenSummaryLeagues.clear();localStorage.removeItem('dr_hidden_summary');rebuildSummaryBar('ls');rebuildSummaryBar('ws')">Show ${hiddenCount} hidden league${hiddenCount>1?'s':''}</div>`
     : '';
   bar.innerHTML = `<div class="summary-bar"><table>
-    <thead><tr><th>League</th><th>My team</th><th>Issues</th></tr></thead>
+    <thead><tr><th>League</th><th>${mode === 'ls' ? 'My roster' : 'My lineup'}</th><th>Issues</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>${showAllFooter}</div>`;
 }
@@ -4417,7 +4540,8 @@ function toggleLeagueCollapse(leagueId) {
   try {
     const raw = localStorage.getItem('dr_weekly_rankings');
     if (!raw) return;
-    const { v, qb, rb, wr, te, def, k, flex } = JSON.parse(raw);
+    const { v, wk, qb, rb, wr, te, def, k, flex } = JSON.parse(raw);
+    weeklyMapsWeek = wk ?? null;
     // v2 re-keyed the kicker map from last name to team abbreviation. Older payloads hold
     // unusable kicker keys, but every other map is still fine — drop only the kickers.
     const staleK = v !== WEEKLY_CACHE_VERSION;
@@ -4438,8 +4562,29 @@ function toggleLeagueCollapse(leagueId) {
   } catch(_) {}
 })();
 
+// Which NFL week the currently-loaded weekly maps belong to (guards cross-week merging).
+let weeklyMapsWeek = null;
+
+// Merge a freshly uploaded weekly map over the previous one, preserving the pre-kickoff
+// entry for any player whose game has started. Ranking files drop players once they've
+// played, so without this their rank silently vanishes and every lineup average improves.
+function mergeLockedWeeklyMap(oldMap, newMap, teamOfEntry) {
+  if (!oldMap || !Object.keys(oldMap).length) return newMap;
+  if (!weeklyGameKickoffs || !Object.keys(weeklyGameKickoffs).length) return newMap; // can't tell
+  const out = { ...newMap };
+  let locked = 0;
+  Object.entries(oldMap).forEach(([key, entry]) => {
+    const team = teamOfEntry(key, entry);
+    if (team && teamGameStarted(team)) { out[key] = { ...entry, rankLocked: true }; locked++; }
+  });
+  if (locked) console.log(`[Weekly] locked ${locked} pre-kickoff rank(s)`);
+  return out;
+}
+const _teamOfPlayerEntry = (key, e) => e?.team ? toSleeperAbbr(String(e.team).toUpperCase()) : null;
+const _teamOfKeyedEntry  = (key)    => toSleeperAbbr(String(key).toUpperCase());
+
 function saveWeeklyCached() {
-  try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ v: WEEKLY_CACHE_VERSION, qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap, def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap })); } catch(_) {}
+  try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ v: WEEKLY_CACHE_VERSION, wk: weeklyMapsWeek, qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap, def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap })); } catch(_) {}
 }
 
 // Matchup scale: 1 = best matchup (easiest), 32 = worst (hardest)
@@ -4579,7 +4724,9 @@ function parseWeeklyAllCsv(text, callback) {
 function onWeeklyAllUpload(evt) {
   const file = evt.target.files?.[0]; evt.target.value = ''; if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => parseWeeklyAllCsv(e.target.result, maps => {
+  reader.onload = e => parseWeeklyAllCsv(e.target.result, async maps => {
+    // Kickoff times drive the rank lock; make sure they're loaded before merging.
+    if (weeklyNflWeek) { try { await fetchGameKickoffs(weeklyNflWeek, weeklyNflYear); } catch(_) {} }
     // Snapshot current maps before overwriting (enables rank-change highlighting)
     if (weeklyHasRankings) {
       weeklyPrevQbMap   = weeklyQbMap;   weeklyPrevRbMap  = weeklyRbMap;
@@ -4587,13 +4734,19 @@ function onWeeklyAllUpload(evt) {
       weeklyPrevDefMap  = weeklyDefMap;  weeklyPrevKMap   = weeklyKMap;
       weeklyPrevFlexMap = weeklyFlexMap;
     }
-    weeklyQbMap   = maps.qbMap;
-    weeklyRbMap   = maps.rbMap;
-    weeklyWrMap   = maps.wrMap;
-    weeklyTeMap   = maps.teMap;
-    weeklyDefMap  = maps.defMap;
-    weeklyKMap    = maps.kMap;
-    weeklyFlexMap = maps.flexMap;
+    // Carry forward pre-kickoff ranks for players who have already played this week.
+    // Only within the same week — a new week legitimately replaces everything.
+    const sameWeek = weeklyMapsWeek != null && weeklyNflWeek != null && weeklyMapsWeek === weeklyNflWeek;
+    const mp = (oldM, newM, fn) => sameWeek ? mergeLockedWeeklyMap(oldM, newM, fn) : newM;
+    weeklyQbMap   = mp(weeklyQbMap,   maps.qbMap,   _teamOfPlayerEntry);
+    weeklyRbMap   = mp(weeklyRbMap,   maps.rbMap,   _teamOfPlayerEntry);
+    weeklyWrMap   = mp(weeklyWrMap,   maps.wrMap,   _teamOfPlayerEntry);
+    weeklyTeMap   = mp(weeklyTeMap,   maps.teMap,   _teamOfPlayerEntry);
+    weeklyDefMap  = mp(weeklyDefMap,  maps.defMap,  _teamOfKeyedEntry);
+    weeklyKMap    = mp(weeklyKMap,    maps.kMap,    _teamOfKeyedEntry);
+    weeklyFlexMap = mp(weeklyFlexMap, maps.flexMap, _teamOfPlayerEntry);
+    weeklyMapsWeek = weeklyNflWeek ?? weeklyMapsWeek;
+    Object.values(allLeaguesCache).forEach(e => { if (e) delete e._wkStanding; });
     weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
     saveWeeklyCached(); updateWeeklyUploadStatus();
     if (weeklyHasRankings) { renderWeeklySummary(); rebuildSummaryBar("ws"); }
@@ -4893,7 +5046,7 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
   const lid       = lg.league_id;
   const collapsed = collapsedLeagues.has(lid);
   const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Show league' : 'Hide league'}">${collapsed ? '▶ Show' : '▼ Hide'}</button>`;
-  const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span>${buildStandingChip(myTierStanding(lg, data))}<span class="ls-lc-meta">${meta}</span>${buildKDefFlags(lg)}${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
+  const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span>${buildStandingChip(myWeeklyStanding(lg, data))}<span class="ls-lc-meta">${meta}</span>${buildKDefFlags(lg)}${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
 
   if (collapsed) return `<div class="ls-league-card" data-lid="${lid}">${hdr}</div>`;
   if (loading)   return `<div class="ls-league-card" data-lid="${lid}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
