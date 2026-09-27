@@ -4460,34 +4460,63 @@ let weeklyPrevFlexMap = {}; let weeklyPrevQbMap = {}; let weeklyPrevRbMap = {};
 let weeklyPrevWrMap  = {}; let weeklyPrevTeMap = {}; let weeklyPrevDefMap = {};
 let weeklyPrevKMap   = {}; let weeklyPrevSeasonMap = {}; // normName → prevOv
 const WEEKLY_CACHE_VERSION = 2;  // bump when the shape of any weekly map changes
-// Game-start lock data — store kickoff times per NFL week, compare to local clock at render time
+// Game-start lock data — kickoff times + live game state per NFL week.
+// Persisted to localStorage so a failed ESPN call never silently disables every lock.
 let weeklyGameKickoffs        = {}; // Sleeper-canonical teamAbbr → kickoff timestamp ms
+let weeklyGameStates          = {}; // teamAbbr → 'pre' | 'in' | 'post' (as of last fetch)
 let weeklyGameKickoffFetchedAt = 0;
 let weeklyGameKickoffsForWeek  = null; // which NFL week the cached kickoffs belong to
 const GAME_KICKOFF_TTL_MS      = 2 * 60 * 60 * 1000; // 2h — refreshes across week boundary
+const KICKOFF_LS_KEY           = 'dr_game_kickoffs';
+
+// Hydrate the in-memory kickoff map from localStorage for this exact week/year.
+function loadKickoffCache(week, year) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KICKOFF_LS_KEY) || 'null');
+    if (raw && raw.week === week && raw.year === year && raw.map && Object.keys(raw.map).length) {
+      weeklyGameKickoffs        = raw.map;
+      weeklyGameStates          = raw.states || {};
+      weeklyGameKickoffsForWeek = week;
+      return true;
+    }
+  } catch(_) {}
+  return false;
+}
+
 async function fetchGameKickoffs(week, year) {
   const now = Date.now();
-  // Invalidate cache if the NFL week changed or it's been 12h
   const weekChanged = week != null && weeklyGameKickoffsForWeek !== week;
-  if (!weekChanged && now - weeklyGameKickoffFetchedAt < GAME_KICKOFF_TTL_MS && Object.keys(weeklyGameKickoffs).length) return;
-  weeklyGameKickoffFetchedAt = now;
-  weeklyGameKickoffsForWeek  = week ?? null;
+  if (weekChanged) { weeklyGameKickoffs = {}; weeklyGameStates = {}; }
+  // Fall back to the last good copy for this week before hitting the network.
+  if (!Object.keys(weeklyGameKickoffs).length) loadKickoffCache(week, year);
+  if (!weekChanged && now - weeklyGameKickoffFetchedAt < GAME_KICKOFF_TTL_MS
+      && Object.keys(weeklyGameKickoffs).length) return;
   try {
-    // Pass week+year so ESPN returns exactly the right week — without params it may return a stale week
-    const qs  = (week && year) ? `?seasontype=2&week=${week}&year=${year}` : '';
+    // ESPN's season parameter is `dates`, not `year`.
+    const qs  = (week && year) ? `?seasontype=2&week=${week}&dates=${year}` : '';
     const d   = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard${qs}`).then(r => r.json());
-    const next = {};
+    const next = {}, states = {};
     (d?.events || []).forEach(ev => {
       const kickoffMs = ev.date ? new Date(ev.date).getTime() : null;
       if (!kickoffMs) return;
+      const st = ev.status?.type?.state || null; // 'pre' | 'in' | 'post'
       (ev.competitions?.[0]?.competitors || []).forEach(c => {
         const abbr = toSleeperAbbr(c.team?.abbreviation || '');
-        if (abbr) next[abbr] = kickoffMs;
+        if (!abbr) return;
+        next[abbr] = kickoffMs;
+        if (st) states[abbr] = st;
       });
     });
-    if (Object.keys(next).length) weeklyGameKickoffs = next;
-  } catch(_) {}
+    if (Object.keys(next).length) {
+      weeklyGameKickoffs         = next;
+      weeklyGameStates           = states;
+      weeklyGameKickoffFetchedAt = now;   // stamp ONLY on success — a failure must retry
+      weeklyGameKickoffsForWeek  = week ?? null;
+      try { localStorage.setItem(KICKOFF_LS_KEY, JSON.stringify({ week, year, map: next, states, at: now })); } catch(_) {}
+    }
+  } catch(_) { /* keep whatever we have; next call retries */ }
 }
+
 // Returns the Unix ms timestamp for the most recent Tuesday at 00:00 local time.
 // Fantasy lineups reset each Tuesday — any kickoff before this is last week's game.
 function getFantasyWeekStart() {
@@ -4504,12 +4533,30 @@ function getFantasyWeekStart() {
 // True if this team's game has already kicked off AND belongs to the current fantasy week.
 // Resets every Tuesday 00:00 local — locks only games that kicked off after that.
 function teamGameStarted(abbr) {
+  if (!abbr) return false;
+  const st = weeklyGameStates[abbr];
+  if (st === 'in' || st === 'post') return true; // ESPN says live or final
   const ko = weeklyGameKickoffs[abbr];
   if (ko == null) return false;
-  const now = Date.now();
-  if (now < ko) return false;                    // game hasn't kicked off yet
+  if (Date.now() < ko) return false;             // game hasn't kicked off yet
   if (ko < getFantasyWeekStart()) return false;  // kickoff was last week — ignore
   return true;
+}
+
+// Sleeper abbreviation for a player id (DEF ids are the abbreviation itself).
+function lockTeamOfPid(pid) {
+  const t = sleeperByName[sleeperById[pid]]?.team || _sleeperRawPlayers?.[pid]?.team || '';
+  if (t) return toSleeperAbbr(String(t).toUpperCase());
+  return /^[A-Z]{2,3}$/.test(String(pid)) ? toSleeperAbbr(String(pid)) : '';
+}
+
+// True if THIS player's game is underway or finished, from any signal we have.
+// ESPN kickoff is preferred (locks the whole slate the moment a game starts), but a
+// non-zero Sleeper stat line is proof on its own and needs no third-party data.
+function playerGameStarted(pid, playersPoints) {
+  if (teamGameStarted(lockTeamOfPid(pid))) return true;
+  const pts = playersPoints?.[pid];
+  return typeof pts === 'number' && pts !== 0;
 }
 
 // Per-league collapse state — persisted across sessions
@@ -4564,24 +4611,6 @@ function toggleLeagueCollapse(leagueId) {
 
 // Which NFL week the currently-loaded weekly maps belong to (guards cross-week merging).
 let weeklyMapsWeek = null;
-
-// Merge a freshly uploaded weekly map over the previous one, preserving the pre-kickoff
-// entry for any player whose game has started. Ranking files drop players once they've
-// played, so without this their rank silently vanishes and every lineup average improves.
-function mergeLockedWeeklyMap(oldMap, newMap, teamOfEntry) {
-  if (!oldMap || !Object.keys(oldMap).length) return newMap;
-  if (!weeklyGameKickoffs || !Object.keys(weeklyGameKickoffs).length) return newMap; // can't tell
-  const out = { ...newMap };
-  let locked = 0;
-  Object.entries(oldMap).forEach(([key, entry]) => {
-    const team = teamOfEntry(key, entry);
-    if (team && teamGameStarted(team)) { out[key] = { ...entry, rankLocked: true }; locked++; }
-  });
-  if (locked) console.log(`[Weekly] locked ${locked} pre-kickoff rank(s)`);
-  return out;
-}
-const _teamOfPlayerEntry = (key, e) => e?.team ? toSleeperAbbr(String(e.team).toUpperCase()) : null;
-const _teamOfKeyedEntry  = (key)    => toSleeperAbbr(String(key).toUpperCase());
 
 function saveWeeklyCached() {
   try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ v: WEEKLY_CACHE_VERSION, wk: weeklyMapsWeek, qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap, def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap })); } catch(_) {}
@@ -4725,7 +4754,7 @@ function onWeeklyAllUpload(evt) {
   const file = evt.target.files?.[0]; evt.target.value = ''; if (!file) return;
   const reader = new FileReader();
   reader.onload = e => parseWeeklyAllCsv(e.target.result, async maps => {
-    // Kickoff times drive the rank lock; make sure they're loaded before merging.
+    // Keep kickoff/lock data fresh on every upload.
     if (weeklyNflWeek) { try { await fetchGameKickoffs(weeklyNflWeek, weeklyNflYear); } catch(_) {} }
     // Snapshot current maps before overwriting (enables rank-change highlighting)
     if (weeklyHasRankings) {
@@ -4734,17 +4763,16 @@ function onWeeklyAllUpload(evt) {
       weeklyPrevDefMap  = weeklyDefMap;  weeklyPrevKMap   = weeklyKMap;
       weeklyPrevFlexMap = weeklyFlexMap;
     }
-    // Carry forward pre-kickoff ranks for players who have already played this week.
-    // Only within the same week — a new week legitimately replaces everything.
-    const sameWeek = weeklyMapsWeek != null && weeklyNflWeek != null && weeklyMapsWeek === weeklyNflWeek;
-    const mp = (oldM, newM, fn) => sameWeek ? mergeLockedWeeklyMap(oldM, newM, fn) : newM;
-    weeklyQbMap   = mp(weeklyQbMap,   maps.qbMap,   _teamOfPlayerEntry);
-    weeklyRbMap   = mp(weeklyRbMap,   maps.rbMap,   _teamOfPlayerEntry);
-    weeklyWrMap   = mp(weeklyWrMap,   maps.wrMap,   _teamOfPlayerEntry);
-    weeklyTeMap   = mp(weeklyTeMap,   maps.teMap,   _teamOfPlayerEntry);
-    weeklyDefMap  = mp(weeklyDefMap,  maps.defMap,  _teamOfKeyedEntry);
-    weeklyKMap    = mp(weeklyKMap,    maps.kMap,    _teamOfKeyedEntry);
-    weeklyFlexMap = mp(weeklyFlexMap, maps.flexMap, _teamOfPlayerEntry);
+    // Rankings evolve through the week — the newest upload always wins outright.
+    // Players who already played need no carried-forward rank: they are locked from
+    // Sleeper/ESPN and rendered with their actual score instead of a stale projection.
+    weeklyQbMap   = maps.qbMap;
+    weeklyRbMap   = maps.rbMap;
+    weeklyWrMap   = maps.wrMap;
+    weeklyTeMap   = maps.teMap;
+    weeklyDefMap  = maps.defMap;
+    weeklyKMap    = maps.kMap;
+    weeklyFlexMap = maps.flexMap;
     weeklyMapsWeek = weeklyNflWeek ?? weeklyMapsWeek;
     Object.values(allLeaguesCache).forEach(e => { if (e) delete e._wkStanding; });
     weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
@@ -4880,19 +4908,19 @@ function getUpgradePids(slotted) {
     if (bp.gameStarted) return; // can't swap in — game already started
     if (bp.pos === 'QB') {
       if (bp.qbRank == null) return;
-      const canReplace = starters.some(s => s.pos === 'QB' && (s.qbRank ?? 0) > (bp.qbRank ?? 9999));
+      const canReplace = starters.some(s => s.pos === 'QB' && !s.locked && (s.qbRank ?? 999) > (bp.qbRank ?? 9999));
       if (canReplace) upgrades.add(bp.pid);
       return;
     }
     if (bp.pos === 'DEF') {
       if (bp.defRank == null) return;
-      const canReplace = starters.some(s => s.pos === 'DEF' && (s.defRank ?? 0) > (bp.defRank ?? 9999));
+      const canReplace = starters.some(s => s.pos === 'DEF' && !s.locked && (s.defRank ?? 999) > (bp.defRank ?? 9999));
       if (canReplace) upgrades.add(bp.pid);
       return;
     }
     if (bp.pos === 'K') {
       if (bp.kRank == null) return;
-      const canReplace = starters.some(s => s.pos === 'K' && (s.kRank ?? 0) > (bp.kRank ?? 9999));
+      const canReplace = starters.some(s => s.pos === 'K' && !s.locked && (s.kRank ?? 999) > (bp.kRank ?? 9999));
       if (canReplace) upgrades.add(bp.pid);
       return;
     }
@@ -4901,6 +4929,8 @@ function getUpgradePids(slotted) {
     // Prefer flexRank comparison; fall back to posRank vs posRank for positional-only players
     const posReplace = starters.some(s => {
       if (s.pos !== bp.pos || FLEX_SLOTS.has(s.slot)) return false;
+      if (s.locked) return false; // already played — cannot be swapped out
+      if (s.flexRank == null && s.posRank == null) return true; // unranked starter is replaceable
       if (bp.flexRank != null && s.flexRank != null) return s.flexRank > bp.flexRank;
       if (bp.posRank != null && s.posRank != null) return s.posRank > bp.posRank;
       return false;
@@ -4909,8 +4939,9 @@ function getUpgradePids(slotted) {
     // Can replace the occupant of a flex slot if bench player ranks better than that specific occupant
     const flexReplace = starters.some(s =>
       FLEX_SLOTS.has(s.slot) &&
+      !s.locked &&
       ['RB','WR','TE'].includes(s.pos) &&
-      (s.flexRank ?? 0) > (bp.flexRank ?? 9999)
+      (s.flexRank ?? 999) > (bp.flexRank ?? 9999)
     );
     if (flexReplace) upgrades.add(bp.pid);
   });
@@ -5009,7 +5040,9 @@ function weeklyPlayerRow(p, isUpgrade) {
 
   // Name color: locked=dim, gameStarted=very dim, seasonOnly=medium dim, else bright
   const nameColor = p.locked ? '#64748b' : p.gameStarted ? '#374151' : p.seasonOnly ? '#94a3b8' : '#f1f5f9';
-  const lockedNote = p.gameStarted ? `<span style="font-size:9px;color:#374151;flex-shrink:0" title="Game already started — cannot swap in">🔒</span>` : '';
+  const lockedNote = p.gameStarted
+    ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0" title="Game already started — cannot swap in${p.liveScore != null ? ` · scored ${p.liveScore.toFixed(1)} pts` : ''}">🔒${p.liveScore != null ? ` ${p.liveScore.toFixed(1)}` : ''}</span>`
+    : '';
 
   let rightMetric;
   if (p.locked) {
@@ -5115,34 +5148,32 @@ function buildWeeklyMyTeamSection(lg, data) {
   const rosterPositions = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
 
   // ── Build locked-starter and game-started maps from matchup data ─────────
-  const lockedSlotMap  = {}; // pid → slot: starters whose game has already kicked off
+  const lockedSlotMap  = {}; // pid → slot: started players pinned to their Sleeper slot
   const gameStartedSet = new Set(); // bench player pids whose game has started
   const matchupData = data.matchupData;
   if (matchupData) {
-    const nonBnSlots = rosterPositions.filter(s => s !== 'BN' && s !== 'IR');
-    // Lock based on local clock vs ESPN kickoff time — score-independent, second-accurate
-    const playerTeam = pid => toSleeperAbbr(_sleeperRawPlayers?.[pid]?.team || '');
+    const nonBnSlots = rosterPositions.filter(s => s !== 'BN' && s !== 'IR' && s !== 'TAXI');
+    const pp = matchupData.playersPoints || {};
+    // A started player is pinned regardless of whether he still appears in the weekly
+    // rankings — ranking files drop players once they've played.
     (matchupData.starters || []).forEach((pid, i) => {
       if (!pid || pid === '0') return;
-      const team = playerTeam(pid);
-      if (i < nonBnSlots.length && team && teamGameStarted(team)) {
-        lockedSlotMap[pid] = nonBnSlots[i]; // kickoff has passed per local clock
-      }
+      if (i < nonBnSlots.length && playerGameStarted(pid, pp)) lockedSlotMap[pid] = nonBnSlots[i];
     });
     const starterSet = new Set(matchupData.starters || []);
     (myRoster?.players || []).forEach(pid => {
       if (starterSet.has(pid)) return;
-      const team = playerTeam(pid);
-      if (team && teamGameStarted(team)) gameStartedSet.add(pid); // bench, can't swap in
+      if (playerGameStarted(pid, pp)) gameStartedSet.add(pid); // bench, can't swap in
     });
   }
   // Annotate players with locked / liveScore / gameStarted flags
   players.forEach(p => {
     if (p.pid in lockedSlotMap) {
       p.locked    = true;
-      p.liveScore = matchupData?.startersPoints?.[p.pid] ?? 0;
+      p.liveScore = matchupData?.startersPoints?.[p.pid] ?? matchupData?.playersPoints?.[p.pid] ?? 0;
     } else if (gameStartedSet.has(p.pid)) {
       p.gameStarted = true;
+      p.liveScore   = matchupData?.playersPoints?.[p.pid] ?? null;
     }
   });
 
@@ -5152,23 +5183,30 @@ function buildWeeklyMyTeamSection(lg, data) {
   const upgrades = getUpgradePids(slotted);
 
   // Per-position worst rank for players in their own positional slot (not FLEX)
+  // Locked starters are excluded everywhere below: they can't be replaced, so they must
+  // not set a waiver threshold. An UNRANKED but swappable starter counts as worst (999),
+  // not best — otherwise a starter who fell out of the rankings hides every upgrade.
+  const UNRANKED = 999;
+  const swappable = starters.filter(p => !p.locked);
+  const worstOf = (pool, key) => pool.reduce((w, p) => Math.max(w, p[key] ?? UNRANKED), 0);
+
   const worstByPos = {};
   ['RB','WR','TE'].forEach(pos => {
-    worstByPos[pos] = starters.filter(s => s.pos === pos && !FLEX_SLOTS.has(s.slot))
-                              .reduce((w, s) => Math.max(w, s.flexRank ?? 0), 0);
+    worstByPos[pos] = worstOf(swappable.filter(s => s.pos === pos && !FLEX_SLOTS.has(s.slot)), 'flexRank');
   });
   // Worst rank of whoever is actually sitting in a FLEX slot (any flex-eligible pos)
-  const worstFlexOccupant = starters.filter(s => FLEX_SLOTS.has(s.slot) && ['RB','WR','TE'].includes(s.pos))
-                                    .reduce((w, s) => Math.max(w, s.flexRank ?? 0), 0);
-  const worstQbRank  = starters.filter(p => p.pos === 'QB').reduce((w, p) => Math.max(w, p.qbRank  ?? 0), 0);
-  const worstDefRank = starters.filter(p => p.pos === 'DEF').reduce((w, p) => Math.max(w, p.defRank ?? 0), 0);
-  const worstKRank   = starters.filter(p => p.pos === 'K').reduce((w, p) => Math.max(w, p.kRank   ?? 0), 0);
+  const worstFlexOccupant = worstOf(swappable.filter(s => FLEX_SLOTS.has(s.slot) && ['RB','WR','TE'].includes(s.pos)), 'flexRank');
+  const worstQbRank  = worstOf(swappable.filter(p => p.pos === 'QB'),  'qbRank');
+  const worstDefRank = worstOf(swappable.filter(p => p.pos === 'DEF'), 'defRank');
+  const worstKRank   = worstOf(swappable.filter(p => p.pos === 'K'),   'kRank');
 
-  const rankedCount = starters.filter(p => p.flexRank != null || p.qbRank != null).length;
-  const avgRank = rankedCount
-    ? Math.round(starters.reduce((s, p) => s + (p.qbRank ?? p.flexRank ?? 0), 0) / Math.max(rankedCount, 1))
+  // Average rank describes the decisions still open to you — played players are done.
+  const rankPool    = swappable.filter(p => p.flexRank != null || p.qbRank != null);
+  const avgRank     = rankPool.length
+    ? Math.round(rankPool.reduce((s, p) => s + (p.qbRank ?? p.flexRank ?? 0), 0) / rankPool.length)
     : null;
-  const projTotal = starters.reduce((s, p) => s + (p.projPts || 0), 0);
+  // Actual points for players who have played, projections for the rest.
+  const projTotal = starters.reduce((s, p) => s + (p.locked ? (p.liveScore || 0) : (p.projPts || 0)), 0);
   const noRankings = !weeklyHasRankings;
 
   // ── Attach season ranks to bench players without a weekly rank ──────────
@@ -5432,18 +5470,34 @@ async function openWeeklySummary() {
   if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
   showScreen('weekly-summary');
   if (!weeklyNflWeek) {
-    try { const s = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json()); weeklyNflWeek = s?.display_week || s?.week || 1; }
+    try {
+      const s = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json());
+      weeklyNflWeek = s?.display_week || s?.week || 1;
+      if (s?.season) weeklyNflYear = parseInt(s.season) || weeklyNflYear;
+    }
     catch(_) { weeklyNflWeek = 1; }
   }
+  // Kickoff data drives every lock — load it here, not as a side effect of whichever
+  // league loader happens to run first.
+  try { await fetchGameKickoffs(weeklyNflWeek, weeklyNflYear); } catch(_) {}
   const titleEl = document.getElementById('ws-title');
   const metaEl  = document.getElementById('ws-meta');
   const tabEl   = document.getElementById('ws-week-tab');
   if (titleEl) titleEl.textContent = `Week ${weeklyNflWeek} · Start/Sit`;
-  if (metaEl)  metaEl.textContent  = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}`;
+  if (metaEl)  metaEl.textContent  = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}${kickoffStatusText()}`;
   if (tabEl)   { tabEl.textContent = `Wk ${weeklyNflWeek} Start/Sit`; tabEl.classList.add('active'); }
   updateWeeklyUploadStatus();
   updateWeeklySeasonStatus();
   renderWeeklySummary();
+}
+
+// Short health line for the Start/Sit header — a visible "0 games" is the fastest
+// possible signal that the lock data failed to load.
+function kickoffStatusText() {
+  const teams = Object.keys(weeklyGameKickoffs).length;
+  if (!teams) return ' · ⚠ no kickoff data (locks off)';
+  const started = Object.keys(weeklyGameKickoffs).filter(teamGameStarted).length;
+  return ` · ${Math.round(teams / 2)} games · ${Math.round(started / 2)} underway/final`;
 }
 
 function renderWeeklySummary() {
@@ -5456,9 +5510,13 @@ function renderWeeklySummary() {
   ensureMySleeperUserId().then(myUid => {
     ensureSleeperDb().then(() => {
       sorted.forEach((lg, i) => {
-        if (allLeaguesCache[lg.league_id]?.loaded) {
+        // `loaded` alone is not enough: the season-long Leagues view writes into this
+        // same cache WITHOUT matchupData, and reusing that entry silently disables every
+        // start/sit lock. Require the weekly-specific payload (null = fetched, none found).
+        const cached = allLeaguesCache[lg.league_id];
+        if (cached?.loaded && cached.matchupData !== undefined) {
           const el = list.children[i];
-          if (el) { const tmp = document.createElement('div'); tmp.innerHTML = buildWeeklyLeagueCardHtml(lg, allLeaguesCache[lg.league_id], false); el.replaceWith(tmp.firstElementChild); }
+          if (el) { const tmp = document.createElement('div'); tmp.innerHTML = buildWeeklyLeagueCardHtml(lg, cached, false); el.replaceWith(tmp.firstElementChild); }
         } else {
           loadOneLeagueWeekly(lg, myUid, i);
         }
