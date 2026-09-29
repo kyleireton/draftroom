@@ -3327,11 +3327,12 @@ function ldwColumn(t, topTotal, rosterPositions) {
   const sub = t.remaining
     ? `${t.livePts.toFixed(1)} in · ${t.remaining} to play`
     : 'all played';
-  // How much better the rank-optimal lineup would project (your team only)
-  const gap = t.bestTotal != null ? t.bestTotal - t.projTotal : 0;
+  // Your column only: how far the lineup you currently have SET sits below this
+  // optimal one. Everything else on this board is already optimal by construction.
+  const gap = t.setTotal != null ? t.projTotal - t.setTotal : 0;
   const gapHtml = gap >= 0.5
-    ? `<div style="font-size:9px;font-weight:700;color:#4ade80;margin-top:2px" title="Your rank-optimal lineup projects ${t.bestTotal.toFixed(1)} — this much is sitting on your bench">↑ ${gap.toFixed(1)} on bench</div>`
-    : '';
+    ? `<div style="font-size:9px;font-weight:700;color:#fbbf24;margin-top:2px" title="Your lineup as currently set projects ${t.setTotal.toFixed(1)} — ${gap.toFixed(1)} below this optimal one. Swap to claim it.">⚠ lineup as set: ${t.setTotal.toFixed(1)} (−${gap.toFixed(1)})</div>`
+    : (t.setTotal != null ? `<div style="font-size:9px;font-weight:700;color:#4ade80;margin-top:2px" title="The lineup you have set matches the rank-optimal one">✓ lineup is optimal</div>` : '');
   const starters = ldwOrderStarters(t.starters, rosterPositions).map(ldwRow).join('');
   // Top bench options that can still be swapped in. computeWeeklyLineup returns bench
   // in roster order, so sort by best available rank here before taking the top few.
@@ -3343,13 +3344,13 @@ function ldwColumn(t, topTotal, rosterPositions) {
     <div class="ldw-hdr">
       <div class="ldw-hdr-top">${tag}<span class="ldw-nm" title="${escHtml(t.name)}">${escHtml(t.name)}</span></div>
       <div class="ldw-hdr-tot">
-        <span class="v${isTop ? ' top' : ''}" title="Actual points for players who have played, projections for the rest">${t.projTotal.toFixed(1)}</span>
+        <span class="v${isTop ? ' top' : ''}" title="Optimal lineup by weekly rank — actual points for players who have played, projections for the rest">${t.projTotal.toFixed(1)}</span>
         <span class="s">${sub}</span>
       </div>
       ${gapHtml}
     </div>
     ${starters}
-    ${benchTop ? `<div class="ldw-sub-hd">Bench — best available</div>${benchTop}` : ''}
+    ${benchTop ? `<div class="ldw-sub-hd">Bench — next up</div>${benchTop}` : ''}
   </div>`;
 }
 
@@ -3383,8 +3384,10 @@ function renderLeagueDetailWeekly() {
       startersPoints: mr?.starters_points || {},
       playersPoints:  mr?.players_points  || {},
     };
-    // Actual declared lineup — a team scores who it started, so this is what the
-    // head-to-head projection must be built from.
+    // Every roster is slotted OPTIMALLY by weekly rank — same convention as the
+    // season-long board: compare teams at their best, not at whatever their manager
+    // happened to set. Players whose game has already kicked off stay pinned in the
+    // slot they actually played in; only the still-open slots get re-optimised.
     const L = computeWeeklyLineup({
       rosterPlayers: r.players,
       rosterPositions,
@@ -3392,23 +3395,23 @@ function renderLeagueDetailWeekly() {
       projections:   leagueProjections,
       seasonPool,
       matchupWeek:   leagueWeek,
-      pinAllStarters: true,
     });
-    // For your own team, also compute the rank-optimal lineup so we can show how much
-    // is sitting on your bench.
-    let bestTotal = null;
+    // For your own team, also compute the lineup as you currently have it set, so we
+    // can show how far off optimal you are and whether it's worth going to fix it.
+    let setTotal = null;
     if (r.roster_id === leagueMyRosterId) {
-      bestTotal = computeWeeklyLineup({
+      setTotal = computeWeeklyLineup({
         rosterPlayers: r.players,
         rosterPositions,
         matchupRow,
         projections:   leagueProjections,
         seasonPool,
         matchupWeek:   leagueWeek,
+        pinAllStarters: true,
       }).projTotal;
     }
     return {
-      bestTotal,
+      setTotal,
       rosterId:  r.roster_id,
       name:      userMap[r.owner_id] || `Roster ${r.roster_id}`,
       matchupId: mr?.matchup_id ?? null,
@@ -3457,11 +3460,11 @@ function renderLeagueDetailWeekly() {
     <div class="ldw-side me"><span class="nm">${escHtml(me.name)}</span>
       <span class="tot">${me.projTotal.toFixed(1)}</span>
       <span class="sub">${me.livePts.toFixed(1)} in · ${me.remaining} to play</span></div>
-    <span class="ldw-margin ${cls}" title="Projected margin — actual points for players who have played, projections for the rest">${sign}${diff.toFixed(1)}</span>
+    <span class="ldw-margin ${cls}" title="Projected margin with both teams playing their rank-optimal lineup — actual points for players who have played, projections for the rest">${sign}${diff.toFixed(1)}</span>
     <div class="ldw-side"><span class="nm">${escHtml(opp.name)}</span>
       <span class="tot">${opp.projTotal.toFixed(1)}</span>
       <span class="sub">${opp.livePts.toFixed(1)} in · ${opp.remaining} to play</span></div>
-    <div class="ldw-note">Week ${leagueWeek ?? '—'}${highNote ? ' · ' + highNote : ''}</div>
+    <div class="ldw-note">Week ${leagueWeek ?? '—'} · optimal lineups${highNote ? ' · ' + highNote : ''}</div>
   </div>`;
   bn.style.display = '';
 }
