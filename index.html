@@ -152,6 +152,13 @@ body {
 .ldw-hdr-tot .v { font-size:17px; font-weight:800; color:#f1f5f9; font-variant-numeric:tabular-nums; }
 .ldw-hdr-tot .s { font-size:9px; color:#4b5563; }
 .ldw-hdr-tot .v.top { color:#fbbf24; text-shadow:0 0 8px #f59e0b88; }
+.ldw-rank-row { display:flex; align-items:center; justify-content:space-between; gap:5px; margin-top:3px;
+  padding-top:3px; border-top:1px solid rgba(255,255,255,.07); }
+.ldw-rank { font-size:11px; font-weight:800; color:#94a3b8; white-space:nowrap; }
+.ldw-rank .lbl { font-size:8px; font-weight:600; color:#4b5563; }
+.ldw-col.my-team .ldw-rank { color:#93c5fd; }
+.ldw-tier { font-size:9px; font-weight:700; color:rgba(255,255,255,.92); border-radius:9px;
+  padding:1px 6px; white-space:nowrap; flex-shrink:0; }
 .ldw-row { display:flex; align-items:center; gap:5px; padding:3px 5px; border-radius:4px; margin-bottom:2px;
   background:#121722; border-left:2px solid transparent; }
 .ldw-row.locked { background:rgba(255,255,255,.02); }
@@ -2886,16 +2893,8 @@ async function loadLeagueDetail(lg) {
     const scoringKey = lg.scoring_settings?.rec === 1 ? 'pts_ppr'
                      : lg.scoring_settings?.rec === 0.5 ? 'pts_half_ppr' : 'pts_std';
 
-    // Projections — non-fatal if unavailable (preseason)
-    try {
-      const projRes = await fetch(`https://api.sleeper.app/v1/projections/nfl/${season}/${week}`);
-      const projRaw = await projRes.json();
-      leagueProjections = {};
-      Object.entries(projRaw || {}).forEach(([pid, stats]) => {
-        const pts = stats[scoringKey] ?? stats.pts_half_ppr ?? stats.pts_ppr ?? stats.pts_std ?? null;
-        if (pts != null) leagueProjections[pid] = Math.round(pts * 10) / 10;
-      });
-    } catch(_) { leagueProjections = {}; }
+    // Projections — non-fatal if unavailable (preseason, or early in a new week)
+    leagueProjections = await fetchWeekProjections(weeklyNflYear || season, week, scoringKey);
 
     // Find which roster is mine (match owner_id to currentUser's Sleeper id via username)
     leagueMyRosterId = null;
@@ -3278,6 +3277,37 @@ function buildStandingChip(st) {
 // instead of season-long tiers, with kickoff locks and a projected total per team.
 // Your team pins left, your scheduled opponent sits next to it.
 
+// Worst tier present in this week's rankings, +1 — the penalty an unranked starter
+// carries so a team with a hole doesn't score better than one without. Same idea as
+// syntheticTierFor() on the season board, read off the weekly maps instead of a CSV.
+function weeklySyntheticTier() {
+  let mx = 0;
+  [weeklyQbMap, weeklyRbMap, weeklyWrMap, weeklyTeMap, weeklyDefMap].forEach(m => {
+    Object.values(m || {}).forEach(e => { if (e?.tier != null && e.tier > mx) mx = e.tier; });
+  });
+  return mx > 0 ? mx + 1 : null;
+}
+
+// The weekly analogue of the season board's "avg starter tier" score. Tier is the only
+// cross-position comparable number in the rankings (a QB rank of 8 and a WR rank of 8
+// are not the same thing), so team strength is the mean starter tier, lower = better.
+function weeklyTierScore(starters, synth) {
+  const vals = [];
+  (starters || []).forEach(p => {
+    const tier = p.qbTier ?? p.posTier ?? p.defTier ?? null;
+    if (tier != null) vals.push(tier);
+    else if (synth != null && SYNTH_TIER_POS.has(p.pos)) vals.push(synth);  // unranked starter
+  });
+  return { avgTier: calcAvg(vals), sdTier: stdDev(vals), tierCount: vals.length };
+}
+
+// Hot→cool pill colour across the league's spread of scores (blue = best).
+function ldwTierColor(avg, mn, mx) {
+  if (avg == null) return '#374151';
+  const t = mx === mn ? 0.5 : (parseFloat(avg) - mn) / (mx - mn);
+  return `hsl(${Math.round(220 - t * 220)}, 72%, 38%)`;
+}
+
 // Starters come out of assignWeeklySlots with locked players first; re-order them to
 // read down the league's actual slot order (QB, RB, RB, WR, ... ).
 function ldwOrderStarters(starters, rosterPositions) {
@@ -3313,7 +3343,8 @@ function ldwRow(p) {
   </div>`;
 }
 
-function ldwColumn(t, topTotal, rosterPositions) {
+function ldwColumn(t, topTotal, rosterPositions, ctx) {
+  const { hasProj = true, tierMin = 1, tierMax = 10, teamCount = 0 } = ctx || {};
   const tag = t.isMe  ? '<span class="ldw-tag me">YOU</span>'
             : t.isOpp ? '<span class="ldw-tag opp">OPP</span>' : '';
   const cls = t.isMe ? ' my-team' : t.isOpp ? ' opp' : '';
@@ -3321,6 +3352,15 @@ function ldwColumn(t, topTotal, rosterPositions) {
   const sub = t.remaining
     ? `${t.livePts.toFixed(1)} in · ${t.remaining} to play`
     : 'all played';
+  // League rank by weekly tier — the weekly counterpart of "#N by Player Tier" on the
+  // season board. This is the number that still means something before projections land.
+  const rankHtml = t.rank
+    ? `<div class="ldw-rank-row">
+         <span class="ldw-rank" title="Rank among all ${teamCount} teams by average starter tier this week">#${t.rank}<span class="lbl"> by weekly tier</span></span>
+         ${t.avgTier != null ? `<span class="ldw-tier" style="background:${ldwTierColor(t.avgTier, tierMin, tierMax)}" title="Average starter tier ${t.avgTier}${t.sdTier != null ? ` ±${t.sdTier}` : ''} across ${t.tierCount} ranked starters — lower is better">T ${t.avgTier}${t.sdTier != null ? `<span style="font-weight:400;opacity:.7"> ±${t.sdTier}</span>` : ''}</span>` : ''}
+       </div>`
+    : '';
+
   // Your column only: how far the lineup you currently have SET sits below this
   // optimal one. Everything else on this board is already optimal by construction.
   const gap = t.setTotal != null ? t.projTotal - t.setTotal : 0;
@@ -3338,9 +3378,12 @@ function ldwColumn(t, topTotal, rosterPositions) {
     <div class="ldw-hdr">
       <div class="ldw-hdr-top">${tag}<span class="ldw-nm" title="${escHtml(t.name)}">${escHtml(t.name)}</span></div>
       <div class="ldw-hdr-tot">
-        <span class="v${isTop ? ' top' : ''}" title="Optimal lineup by weekly rank — actual points for players who have played, projections for the rest">${t.projTotal.toFixed(1)}</span>
-        <span class="s">${sub}</span>
+        <span class="v${isTop && hasProj ? ' top' : ''}" title="${hasProj
+          ? 'Optimal lineup by weekly rank — actual points for players who have played, projections for the rest'
+          : 'Sleeper has not published projections for this week yet'}">${hasProj ? t.projTotal.toFixed(1) : '—'}</span>
+        <span class="s">${hasProj ? sub : 'no projections yet'}</span>
       </div>
+      ${rankHtml}
       ${gapHtml}
     </div>
     ${starters}
@@ -3367,6 +3410,8 @@ function renderLeagueDetailWeekly() {
   const rowBy = {};
   leagueMatchups.forEach(m => { if (m && m.roster_id != null) rowBy[m.roster_id] = m; });
   const seasonPool = weeklySeasonPlayers.length ? weeklySeasonPlayers : leagueCsvPlayers;
+  const synthTier  = weeklySyntheticTier();
+  const hasProj    = Object.keys(leagueProjections || {}).length > 0;
 
   const teams = leagueRosters.map(r => {
     const mr = rowBy[r.roster_id];
@@ -3406,6 +3451,7 @@ function renderLeagueDetailWeekly() {
     }
     return {
       setTotal,
+      ...weeklyTierScore(L.starters, synthTier),
       rosterId:  r.roster_id,
       name:      userMap[r.owner_id] || `Roster ${r.roster_id}`,
       matchupId: mr?.matchup_id ?? null,
@@ -3415,6 +3461,18 @@ function renderLeagueDetailWeekly() {
     };
   });
 
+  // League rank by weekly tier score (lower = better), nulls last — same ordering rule
+  // as the season board so the two views agree on what "better" means.
+  [...teams].sort((a, b) => {
+    if (a.avgTier == null && b.avgTier == null) return 0;
+    if (a.avgTier == null) return 1;
+    if (b.avgTier == null) return -1;
+    return parseFloat(a.avgTier) - parseFloat(b.avgTier);
+  }).forEach((t, i) => { t.rank = i + 1; });
+  const tierVals = teams.map(t => t.avgTier).filter(v => v != null).map(parseFloat);
+  const tierMin  = tierVals.length ? Math.min(...tierVals) : 1;
+  const tierMax  = tierVals.length ? Math.max(...tierVals) : 10;
+
   const me  = teams.find(t => t.isMe) || null;
   const opp = (me && me.matchupId != null)
     ? teams.find(t => t !== me && t.matchupId === me.matchupId) || null
@@ -3422,12 +3480,15 @@ function renderLeagueDetailWeekly() {
   if (opp) opp.isOpp = true;
 
   // Me first (sticky), my opponent next, then everyone else by projected total.
-  const rest = teams.filter(t => t !== me && t !== opp).sort((a, b) => b.projTotal - a.projTotal);
+  // Order the rest by projected points when we have projections; fall back to the
+  // tier rank when Sleeper has none yet (early in a week every total would be 0).
+  const rest = teams.filter(t => t !== me && t !== opp)
+    .sort((a, b) => hasProj ? b.projTotal - a.projTotal : (a.rank || 99) - (b.rank || 99));
   const ordered = [me, opp, ...rest].filter(Boolean);
   const topTotal = Math.max(...teams.map(t => t.projTotal), 0);
   const leader   = teams.find(t => Math.abs(t.projTotal - topTotal) < 0.05);
 
-  grid.innerHTML = ordered.map(t => ldwColumn(t, topTotal, rosterPositions)).join('');
+  grid.innerHTML = ordered.map(t => ldwColumn(t, topTotal, rosterPositions, { hasProj, tierMin, tierMax, teamCount: teams.length })).join('');
 
   // ── Head-to-head banner ────────────────────────────────────────────────
   if (!bn) return;
@@ -3448,17 +3509,24 @@ function renderLeagueDetailWeekly() {
     bn.style.display = ''; return;
   }
   const diff = me.projTotal - opp.projTotal;
-  const cls  = Math.abs(diff) < 0.05 ? 'ev' : diff > 0 ? 'up' : 'dn';
+  const byTier = me.rank && opp.rank ? opp.rank - me.rank : 0;   // +ve = you rank better
+  const cls  = hasProj
+    ? (Math.abs(diff) < 0.05 ? 'ev' : diff > 0 ? 'up' : 'dn')
+    : (byTier === 0 ? 'ev' : byTier > 0 ? 'up' : 'dn');
   const sign = diff > 0 ? '+' : '';
   bn.innerHTML = `<div class="ldw-bar">
     <div class="ldw-side me"><span class="nm">${escHtml(me.name)}</span>
-      <span class="tot">${me.projTotal.toFixed(1)}</span>
-      <span class="sub">${me.livePts.toFixed(1)} in · ${me.remaining} to play</span></div>
-    <span class="ldw-margin ${cls}" title="Projected margin with both teams playing their rank-optimal lineup — actual points for players who have played, projections for the rest">${sign}${diff.toFixed(1)}</span>
+      <span class="tot">${hasProj ? me.projTotal.toFixed(1) : '—'}</span>
+      <span class="sub">${me.rank ? `#${me.rank} by weekly tier · ` : ''}${hasProj ? `${me.livePts.toFixed(1)} in · ${me.remaining} to play` : 'no projections yet'}</span></div>
+    <span class="ldw-margin ${cls}" title="${hasProj
+      ? 'Projected margin with both teams playing their rank-optimal lineup — actual points for players who have played, projections for the rest'
+      : 'No projections yet — comparing average starter tier instead (lower is better)'}">${hasProj
+      ? `${sign}${diff.toFixed(1)}`
+      : (me.avgTier != null && opp.avgTier != null ? `T ${me.avgTier} v ${opp.avgTier}` : '—')}</span>
     <div class="ldw-side"><span class="nm">${escHtml(opp.name)}</span>
-      <span class="tot">${opp.projTotal.toFixed(1)}</span>
-      <span class="sub">${opp.livePts.toFixed(1)} in · ${opp.remaining} to play</span></div>
-    <div class="ldw-note">Week ${leagueWeek ?? '—'} · optimal lineups${highNote ? ' · ' + highNote : ''}</div>
+      <span class="tot">${hasProj ? opp.projTotal.toFixed(1) : '—'}</span>
+      <span class="sub">${opp.rank ? `#${opp.rank} by weekly tier · ` : ''}${hasProj ? `${opp.livePts.toFixed(1)} in · ${opp.remaining} to play` : 'no projections yet'}</span></div>
+    <div class="ldw-note">Week ${leagueWeek ?? '—'} · optimal lineups${hasProj ? (highNote ? ' · ' + highNote : '') : ' · projections not published yet'}</div>
   </div>`;
   bn.style.display = '';
 }
@@ -4362,15 +4430,7 @@ async function loadOneLeagueSummary(lg, myUid, cardIndex) {
     const users      = await userRes.json();
     const week       = wk.week;
 
-    let projections = {};
-    try {
-      const pRes = await fetch(`https://api.sleeper.app/v1/projections/nfl/${season}/${week}`);
-      const pRaw = await pRes.json();
-      Object.entries(pRaw || {}).forEach(([pid, stats]) => {
-        const pts = stats[scoringKey] ?? stats.pts_half_ppr ?? stats.pts_ppr ?? stats.pts_std ?? null;
-        if (pts != null) projections[pid] = Math.round(pts * 10) / 10;
-      });
-    } catch(_) {}
+    const projections = await fetchWeekProjections(weeklyNflYear || season, week, scoringKey);
 
     // Load rankings from Supabase for this league
     let csvPlayers = [];
@@ -4803,6 +4863,52 @@ async function fetchGameKickoffs(week, year) {
   weeklyGameKickoffsForWeek  = week ?? null;
   weeklyGameKickoffFetchedAt = rec.at;
   try { localStorage.setItem(KICKOFF_LS_KEY, JSON.stringify({ week, year, map: rec.map, states: rec.states, at: rec.at })); } catch(_) {}
+}
+
+// ── Weekly projections ────────────────────────────────────────────
+// Sleeper serves projections from more than one host/shape depending on the endpoint,
+// and none of them are contractual. Try each in turn and normalise: some return an
+// object keyed by player_id, others an array of { player_id, stats }.
+// Empty is a legitimate answer early in a week — callers must cope with no projections.
+const _projCache = {};   // "season:week:scoringKey" → { map, at, ok }
+const PROJ_TTL_MS = 30 * 60 * 1000;
+
+function _normaliseProjections(raw, scoringKey) {
+  const out = {};
+  const take = (pid, stats) => {
+    if (!pid || !stats) return;
+    const pts = stats[scoringKey] ?? stats.pts_half_ppr ?? stats.pts_ppr ?? stats.pts_std ?? null;
+    if (pts != null) out[pid] = Math.round(pts * 10) / 10;
+  };
+  if (Array.isArray(raw))      raw.forEach(r => take(r?.player_id ?? r?.playerId, r?.stats ?? r));
+  else if (raw && typeof raw === 'object') Object.entries(raw).forEach(([pid, v]) => take(pid, v?.stats ?? v));
+  return out;
+}
+
+async function fetchWeekProjections(season, week, scoringKey) {
+  const key = `${season}:${week}:${scoringKey}`;
+  const hit = _projCache[key];
+  if (hit && Date.now() - hit.at < PROJ_TTL_MS && hit.ok) return hit.map;
+  const qs  = '?season_type=regular&order_by=ppr';
+  const urls = [
+    `https://api.sleeper.com/projections/nfl/${season}/${week}${qs}`,
+    `https://api.sleeper.app/projections/nfl/${season}/${week}${qs}`,
+    `https://api.sleeper.app/v1/projections/nfl/${season}/${week}`,
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const map = _normaliseProjections(await res.json(), scoringKey);
+      if (Object.keys(map).length) {
+        _projCache[key] = { map, at: Date.now(), ok: true };
+        return map;
+      }
+    } catch(_) { /* try the next shape */ }
+  }
+  _projCache[key] = { map: {}, at: Date.now(), ok: false };
+  console.warn(`[DraftRoom] no projections available for ${season} wk${week}`);
+  return {};
 }
 
 // ── Which NFL week are we actually planning for? ──────────────────────────
@@ -5905,14 +6011,7 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
     const rosters  = await rosterRes.json();
     const users    = await userRes.json();
     const matchupsRaw = await matchupRes.json().catch(() => []);
-    let projections = {};
-    try {
-      const pRaw = await fetch(`https://api.sleeper.app/v1/projections/nfl/${season}/${week}`).then(r => r.json());
-      Object.entries(pRaw || {}).forEach(([pid, stats]) => {
-        const pts = stats[scoringKey] ?? stats.pts_half_ppr ?? stats.pts_ppr ?? stats.pts_std ?? null;
-        if (pts != null) projections[pid] = Math.round(pts * 10) / 10;
-      });
-    } catch(_) {}
+    const projections = await fetchWeekProjections(year || season, week, scoringKey);
     let myRosterId = null;
     if (myUid) { const r = rosters.find(r => r.owner_id === myUid); if (r) myRosterId = r.roster_id; }
     let matchupData = null;
