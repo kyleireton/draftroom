@@ -118,6 +118,53 @@ body {
   padding: 5px 13px; font-size: 11px; font-weight: 600; color: #6ee7b7; cursor: pointer;
 }
 .ld-upload-btn:hover { background: #14532d; }
+/* ── Weekly board mode ── */
+.ldw-toggle { display:inline-flex; border:1px solid #2d3748; border-radius:6px; overflow:hidden; }
+.ldw-tbtn { background:#141a24; border:none; color:#64748b; font-size:11px; font-weight:700;
+  padding:5px 11px; cursor:pointer; transition:background .12s,color .12s; }
+.ldw-tbtn:hover { color:#cbd5e1; }
+.ldw-tbtn.active { background:#1e3a5f; color:#dbeafe; }
+#ldw-banner { flex-shrink:0; background:#0f1520; border-bottom:1px solid #1e2530; padding:8px 16px; }
+.ldw-bar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.ldw-side { display:flex; align-items:baseline; gap:7px; min-width:0; }
+.ldw-side .nm { font-size:12px; font-weight:700; color:#94a3b8; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; max-width:190px; }
+.ldw-side.me .nm { color:#93c5fd; }
+.ldw-side .tot { font-size:19px; font-weight:800; color:#f1f5f9; font-variant-numeric:tabular-nums; }
+.ldw-side .sub { font-size:10px; color:#4b5563; white-space:nowrap; }
+.ldw-margin { font-size:13px; font-weight:800; padding:3px 11px; border-radius:13px;
+  font-variant-numeric:tabular-nums; white-space:nowrap; }
+.ldw-margin.up { background:rgba(34,197,94,.15); color:#4ade80; }
+.ldw-margin.dn { background:rgba(239,68,68,.15); color:#f87171; }
+.ldw-margin.ev { background:rgba(148,163,184,.14); color:#cbd5e1; }
+.ldw-note { font-size:10px; color:#475569; margin-left:auto; white-space:nowrap; }
+.ldw-col { width: 186px; flex-shrink: 0; }
+.ldw-col.my-team { position:sticky; left:0; z-index:10; background:#0f1319; box-shadow:3px 0 10px rgba(0,0,0,.6); }
+.ldw-hdr { background:#1a1f2a; border:1px solid #1e2530; border-radius:7px; padding:6px 8px; margin-bottom:6px; }
+.ldw-col.my-team .ldw-hdr { border-color:#3b6fe8; background:#1e3358; }
+.ldw-col.opp .ldw-hdr      { border-color:#b45309; background:#2a1f0f; }
+.ldw-hdr-top { display:flex; align-items:center; gap:5px; }
+.ldw-nm { font-size:11px; font-weight:700; color:#cbd5e1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ldw-tag { font-size:8px; font-weight:800; letter-spacing:.05em; padding:1px 5px; border-radius:3px; flex-shrink:0; }
+.ldw-tag.me  { background:#3b6fe8; color:#fff; }
+.ldw-tag.opp { background:#b45309; color:#fff; }
+.ldw-hdr-tot { display:flex; align-items:baseline; gap:6px; margin-top:3px; }
+.ldw-hdr-tot .v { font-size:17px; font-weight:800; color:#f1f5f9; font-variant-numeric:tabular-nums; }
+.ldw-hdr-tot .s { font-size:9px; color:#4b5563; }
+.ldw-hdr-tot .v.top { color:#fbbf24; text-shadow:0 0 8px #f59e0b88; }
+.ldw-row { display:flex; align-items:center; gap:5px; padding:3px 5px; border-radius:4px; margin-bottom:2px;
+  background:#121722; border-left:2px solid transparent; }
+.ldw-row.locked { background:rgba(255,255,255,.02); }
+.ldw-slot { font-size:8px; font-weight:700; color:#4b5563; width:26px; flex-shrink:0; }
+.ldw-chip { font-size:9px; font-weight:800; color:#fff; border-radius:3px; padding:1px 4px;
+  min-width:24px; text-align:center; flex-shrink:0; }
+.ldw-pname { font-size:10px; color:#e2e8f0; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ldw-row.locked .ldw-pname { color:#64748b; }
+.ldw-pts { font-size:10px; font-weight:700; color:#94a3b8; font-variant-numeric:tabular-nums;
+  min-width:30px; text-align:right; flex-shrink:0; }
+.ldw-pts.live { color:#4ade80; }
+.ldw-sub-hd { font-size:8px; font-weight:700; color:#475569; text-transform:uppercase;
+  letter-spacing:.06em; margin:7px 0 3px; }
 .ld-body { display: flex; flex: 1; overflow: hidden; }
 .ld-board { flex: 1; overflow: auto; padding: 10px 12px 24px; }
 .ld-team-grid { display: flex; gap: 8px; align-items: flex-start; min-width: max-content; padding-right: 100vw; }
@@ -1107,11 +1154,16 @@ body {
       <div class="ld-meta" id="ld-meta"></div>
     </div>
     <div class="ld-controls">
+      <span class="ldw-toggle">
+        <button class="ldw-tbtn active" id="ldw-btn-season" onclick="setLdBoardMode('season')" title="Rank every roster by your season-long rankings">Season</button>
+        <button class="ldw-tbtn" id="ldw-btn-weekly" onclick="setLdBoardMode('weekly')" title="Rank every roster by this week's rankings, with kickoff locks and projected totals">Weekly</button>
+      </span>
       <span id="ld-rankings-status" style="font-size:11px;color:#374151"></span>
       <button class="ld-upload-btn" onclick="document.getElementById('league-csv-input').click()">↑ Update rankings</button>
       <input type="file" id="league-csv-input" accept=".csv,text/csv,text/plain" onchange="onLeagueCsvUpload(event)">
     </div>
   </div>
+  <div id="ldw-banner" style="display:none"></div>
   <div class="ld-body">
     <div class="ld-board" id="ld-board">
       <div id="ld-team-grid" class="ld-team-grid"></div>
@@ -2611,6 +2663,11 @@ let leagueCsvPlayers      = [];   // CSV rankings uploaded for league view
 let wirePositionFilter    = 'ALL';
 let leagueMyRosterId      = null; // roster_id for currentUser
 let currentLeagueId       = null; // tracks which league is loaded — skip re-fetch on same league
+let leagueMatchups        = [];   // this week's matchup rows for the open league (all rosters)
+let leagueWeek            = null; // NFL week those matchup rows belong to
+let _ldMatchupKey         = null; // leagueId:week guard so we don't refetch needlessly
+// Which board the league-detail screen shows: season-long tiers, or this week's lineups.
+let ldBoardMode = (() => { try { return localStorage.getItem('dr_ld_mode') || 'season'; } catch(_) { return 'season'; } })();
 let allLeaguesCache       = {};   // leagueId → { rosters, users, projections, csvPlayers, myRosterId, loaded }
 let mySleeperUserId       = null; // cached Sleeper user_id for identifying "my" roster across leagues
 
@@ -2754,15 +2811,52 @@ async function ensureSleeperDb() {
   return _sleeperDbLoading;
 }
 
+// Fetch this week's matchup rows for the open league (all rosters, not just mine).
+// They carry each team's starters, live points, and the matchup_id that pairs opponents.
+async function ensureLeagueMatchups(lg, week) {
+  try {
+    let wk = week, yr = weeklyNflYear;
+    if (wk == null) {
+      const st = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json());
+      wk = st?.display_week || st?.week || 1;
+      if (st?.season) yr = parseInt(st.season) || yr;
+    }
+    const key = `${lg.league_id}:${wk}`;
+    if (_ldMatchupKey === key && leagueMatchups.length) return;
+    await fetchGameKickoffs(wk, yr);   // lock data for this week
+    const m = await fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/matchups/${wk}`).then(r => r.json());
+    leagueMatchups = Array.isArray(m) ? m : [];
+    leagueWeek     = wk;
+    _ldMatchupKey  = key;
+  } catch(_) { /* leave whatever we had; the board degrades to no locks */ }
+}
+
+// Season / Weekly board toggle
+function setLdBoardMode(mode) {
+  ldBoardMode = mode === 'weekly' ? 'weekly' : 'season';
+  try { localStorage.setItem('dr_ld_mode', ldBoardMode); } catch(_) {}
+  const sb = document.getElementById('ldw-btn-season'), wb = document.getElementById('ldw-btn-weekly');
+  if (sb) sb.classList.toggle('active', ldBoardMode === 'season');
+  if (wb) wb.classList.toggle('active', ldBoardMode === 'weekly');
+  const sub = document.getElementById('ld-wire-sub');
+  if (sub) sub.textContent = ldBoardMode === 'weekly' ? 'Top available by season rank' : 'Top available by rank';
+  if (ldBoardMode === 'weekly' && leagueMeta?.league_id) {
+    ensureLeagueMatchups(leagueMeta, leagueWeek).then(renderLeagueDetail);
+  }
+  renderLeagueDetail();
+}
+
 // ── League detail load ──
 async function loadLeagueDetail(lg) {
   showScreen('league-detail');
 
   // If returning to the same league already in memory, just re-render — no fetch needed
+  setLdBoardMode(ldBoardMode);   // sync the toggle buttons to the persisted mode
   if (lg.league_id === currentLeagueId && leagueRosters.length > 0) {
     leagueMeta = lg;
     renderLeagueDetail();
     renderWaiverWire();
+    if (ldBoardMode === 'weekly') ensureLeagueMatchups(lg, leagueWeek).then(renderLeagueDetail);
     return;
   }
 
@@ -2823,6 +2917,8 @@ async function loadLeagueDetail(lg) {
       } catch(_) {}
     }
 
+    if (nflState?.season) weeklyNflYear = parseInt(nflState.season) || weeklyNflYear;
+    await ensureLeagueMatchups(lg, week);
     renderLeagueDetail();
   } catch(e) {
     document.getElementById('ld-team-grid').innerHTML = `<div style="color:#f87171;font-size:12px;padding:20px">Error: ${escHtml(e.message)}</div>`;
@@ -3183,7 +3279,197 @@ function buildStandingChip(st) {
   return `<span class="lc-standing" style="color:${c};border-color:${c}55;background:${c}14" title="${escHtml(standingTitle(st))}">#${st.rank}/${st.of}</span>`;
 }
 
+// ══ Weekly board ══════════════════════════════════════════════════════════
+// Same league-detail screen, but every roster is slotted by THIS WEEK'S rankings
+// instead of season-long tiers, with kickoff locks and a projected total per team.
+// Your team pins left, your scheduled opponent sits next to it.
+
+// Starters come out of assignWeeklySlots with locked players first; re-order them to
+// read down the league's actual slot order (QB, RB, RB, WR, ... ).
+function ldwOrderStarters(starters, rosterPositions) {
+  const order = (rosterPositions || []).filter(x => x !== 'BN' && x !== 'IR' && x !== 'TAXI');
+  return starters.slice().sort((a, b) => {
+    const ai = order.indexOf(a.slot), bi = order.indexOf(b.slot);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  });
+}
+
+function ldwSlotLabel(slot) {
+  return slot === 'SUPER_FLEX' ? 'SF' : slot === 'REC_FLEX' ? 'RF'
+       : slot === 'WRRB_FLEX' ? 'WR/RB' : slot === 'FLEX' ? 'FLX' : slot;
+}
+
+function ldwRow(p) {
+  const rank = p.qbRank ?? p.flexRank ?? p.defRank ?? p.kRank ?? p.posRank ?? null;
+  const bg   = POS_CHIP_COLOR[p.pos] || '#374151';
+  const chip = rank != null
+    ? `<span class="ldw-chip" style="background:${bg}" title="${p.pos} weekly rank #${rank}">${rank}</span>`
+    : `<span class="ldw-chip" style="background:#1f2937;color:#4b5563" title="No weekly rank">—</span>`;
+  // Played players show what they actually scored; everyone else shows their projection.
+  const played = p.locked || p.gameStarted;
+  const pts    = played ? (p.liveScore ?? 0) : (p.projPts ?? null);
+  const ptsStr = pts != null ? pts.toFixed(1) : '—';
+  const ptsCls = played ? 'ldw-pts live' : 'ldw-pts';
+  const tip    = played ? 'Actual points — game started' : 'Sleeper projection';
+  return `<div class="ldw-row${p.locked ? ' locked' : ''}" style="border-left-color:${bg}">
+    <span class="ldw-slot">${p.bench ? 'BN' : escHtml(ldwSlotLabel(p.slot || p.pos))}</span>
+    ${chip}
+    <span class="ldw-pname">${escHtml(displayName(p.name))}${p.locked ? ' 🔒' : ''}</span>
+    <span class="${ptsCls}" title="${tip}">${ptsStr}</span>
+  </div>`;
+}
+
+function ldwColumn(t, topTotal, rosterPositions) {
+  const tag = t.isMe  ? '<span class="ldw-tag me">YOU</span>'
+            : t.isOpp ? '<span class="ldw-tag opp">OPP</span>' : '';
+  const cls = t.isMe ? ' my-team' : t.isOpp ? ' opp' : '';
+  const isTop = topTotal > 0 && Math.abs(t.projTotal - topTotal) < 0.05;
+  const sub = t.remaining
+    ? `${t.livePts.toFixed(1)} in · ${t.remaining} to play`
+    : 'all played';
+  // How much better the rank-optimal lineup would project (your team only)
+  const gap = t.bestTotal != null ? t.bestTotal - t.projTotal : 0;
+  const gapHtml = gap >= 0.5
+    ? `<div style="font-size:9px;font-weight:700;color:#4ade80;margin-top:2px" title="Your rank-optimal lineup projects ${t.bestTotal.toFixed(1)} — this much is sitting on your bench">↑ ${gap.toFixed(1)} on bench</div>`
+    : '';
+  const starters = ldwOrderStarters(t.starters, rosterPositions).map(ldwRow).join('');
+  // Top bench options that can still be swapped in. computeWeeklyLineup returns bench
+  // in roster order, so sort by best available rank here before taking the top few.
+  const bRank = p => p.flexRank ?? p.qbRank ?? p.defRank ?? p.kRank ?? p.posRank ?? Infinity;
+  const benchTop = t.bench.filter(p => !p.gameStarted && !p.locked)
+                          .sort((a, b) => bRank(a) - bRank(b))
+                          .slice(0, 3).map(ldwRow).join('');
+  return `<div class="ldw-col${cls}">
+    <div class="ldw-hdr">
+      <div class="ldw-hdr-top">${tag}<span class="ldw-nm" title="${escHtml(t.name)}">${escHtml(t.name)}</span></div>
+      <div class="ldw-hdr-tot">
+        <span class="v${isTop ? ' top' : ''}" title="Actual points for players who have played, projections for the rest">${t.projTotal.toFixed(1)}</span>
+        <span class="s">${sub}</span>
+      </div>
+      ${gapHtml}
+    </div>
+    ${starters}
+    ${benchTop ? `<div class="ldw-sub-hd">Bench — best available</div>${benchTop}` : ''}
+  </div>`;
+}
+
+function renderLeagueDetailWeekly() {
+  const grid = document.getElementById('ld-team-grid');
+  const bn   = document.getElementById('ldw-banner');
+  if (!grid) return;
+
+  if (!weeklyHasRankings) {
+    grid.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;max-width:460px">'
+      + 'No weekly rankings loaded. Upload this week’s rankings CSV on the Start/Sit screen '
+      + 'and this board will rank every roster by them.</div>';
+    if (bn) { bn.style.display = 'none'; bn.innerHTML = ''; }
+    return;
+  }
+
+  const rosterPositions = leagueMeta.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
+  const userMap = {};
+  leagueUsers.forEach(u => { userMap[u.user_id] = u.metadata?.team_name || u.display_name || u.username || 'Team'; });
+  const rowBy = {};
+  leagueMatchups.forEach(m => { if (m && m.roster_id != null) rowBy[m.roster_id] = m; });
+  const seasonPool = weeklySeasonPlayers.length ? weeklySeasonPlayers : leagueCsvPlayers;
+
+  const teams = leagueRosters.map(r => {
+    const mr = rowBy[r.roster_id];
+    // Fall back to the roster's own starters when matchup rows aren't available,
+    // so kickoff locks still work.
+    const matchupRow = {
+      week:           leagueWeek,
+      starters:       mr?.starters || r.starters || [],
+      startersPoints: mr?.starters_points || {},
+      playersPoints:  mr?.players_points  || {},
+    };
+    // Actual declared lineup — a team scores who it started, so this is what the
+    // head-to-head projection must be built from.
+    const L = computeWeeklyLineup({
+      rosterPlayers: r.players,
+      rosterPositions,
+      matchupRow,
+      projections:   leagueProjections,
+      seasonPool,
+      matchupWeek:   leagueWeek,
+      pinAllStarters: true,
+    });
+    // For your own team, also compute the rank-optimal lineup so we can show how much
+    // is sitting on your bench.
+    let bestTotal = null;
+    if (r.roster_id === leagueMyRosterId) {
+      bestTotal = computeWeeklyLineup({
+        rosterPlayers: r.players,
+        rosterPositions,
+        matchupRow,
+        projections:   leagueProjections,
+        seasonPool,
+        matchupWeek:   leagueWeek,
+      }).projTotal;
+    }
+    return {
+      bestTotal,
+      rosterId:  r.roster_id,
+      name:      userMap[r.owner_id] || `Roster ${r.roster_id}`,
+      matchupId: mr?.matchup_id ?? null,
+      isMe:      r.roster_id === leagueMyRosterId,
+      isOpp:     false,
+      ...L,
+    };
+  });
+
+  const me  = teams.find(t => t.isMe) || null;
+  const opp = (me && me.matchupId != null)
+    ? teams.find(t => t !== me && t.matchupId === me.matchupId) || null
+    : null;
+  if (opp) opp.isOpp = true;
+
+  // Me first (sticky), my opponent next, then everyone else by projected total.
+  const rest = teams.filter(t => t !== me && t !== opp).sort((a, b) => b.projTotal - a.projTotal);
+  const ordered = [me, opp, ...rest].filter(Boolean);
+  const topTotal = Math.max(...teams.map(t => t.projTotal), 0);
+  const leader   = teams.find(t => Math.abs(t.projTotal - topTotal) < 0.05);
+
+  grid.innerHTML = ordered.map(t => ldwColumn(t, topTotal, rosterPositions)).join('');
+
+  // ── Head-to-head banner ────────────────────────────────────────────────
+  if (!bn) return;
+  if (!me) {
+    bn.style.display = 'none'; bn.innerHTML = '';
+    return;
+  }
+  const highNote = leader
+    ? `League high: ${escHtml(leader.name)} ${leader.projTotal.toFixed(1)}`
+    : '';
+  if (!opp) {
+    bn.innerHTML = `<div class="ldw-bar">
+      <div class="ldw-side me"><span class="nm">${escHtml(me.name)}</span>
+        <span class="tot">${me.projTotal.toFixed(1)}</span>
+        <span class="sub">${me.livePts.toFixed(1)} in · ${me.remaining} to play</span></div>
+      <div class="ldw-note">No scheduled opponent found for week ${leagueWeek ?? '—'}${highNote ? ' · ' + highNote : ''}</div>
+    </div>`;
+    bn.style.display = ''; return;
+  }
+  const diff = me.projTotal - opp.projTotal;
+  const cls  = Math.abs(diff) < 0.05 ? 'ev' : diff > 0 ? 'up' : 'dn';
+  const sign = diff > 0 ? '+' : '';
+  bn.innerHTML = `<div class="ldw-bar">
+    <div class="ldw-side me"><span class="nm">${escHtml(me.name)}</span>
+      <span class="tot">${me.projTotal.toFixed(1)}</span>
+      <span class="sub">${me.livePts.toFixed(1)} in · ${me.remaining} to play</span></div>
+    <span class="ldw-margin ${cls}" title="Projected margin — actual points for players who have played, projections for the rest">${sign}${diff.toFixed(1)}</span>
+    <div class="ldw-side"><span class="nm">${escHtml(opp.name)}</span>
+      <span class="tot">${opp.projTotal.toFixed(1)}</span>
+      <span class="sub">${opp.livePts.toFixed(1)} in · ${opp.remaining} to play</span></div>
+    <div class="ldw-note">Week ${leagueWeek ?? '—'}${highNote ? ' · ' + highNote : ''}</div>
+  </div>`;
+  bn.style.display = '';
+}
+
 function renderLeagueDetail() {
+  if (ldBoardMode === 'weekly') return renderLeagueDetailWeekly();
+  const bn = document.getElementById('ldw-banner');
+  if (bn) { bn.style.display = 'none'; bn.innerHTML = ''; }
   const grid = document.getElementById('ld-team-grid');
   grid.innerHTML = '';
 
@@ -5094,36 +5380,12 @@ function weeklyPlayerRow(p, isUpgrade) {
 }
 
 // Build per-league weekly card HTML
-function buildWeeklyLeagueCardHtml(lg, data, loading) {
-  const name      = escHtml(lg.name || 'Unknown League');
-  const meta      = [(lg.settings?.num_teams || ''), lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std'].filter(Boolean).join('-team · ');
-  const lid       = lg.league_id;
-  const collapsed = collapsedLeagues.has(lid);
-  const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Show league' : 'Hide league'}">${collapsed ? '▶ Show' : '▼ Hide'}</button>`;
-  const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span>${buildStandingChip(myWeeklyStanding(lg, data))}<span class="ls-lc-meta">${meta}</span>${buildKDefFlags(lg)}${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
-
-  if (collapsed) return `<div class="ls-league-card" data-lid="${lid}">${hdr}</div>`;
-  if (loading)   return `<div class="ls-league-card" data-lid="${lid}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
-
-  const { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank } = buildWeeklyMyTeamSection(lg, data);
-  const waiverHtml = buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank, lg);
-  const isMyLeague = data?.myRosterId != null;
-  return `<div class="ls-league-card${isMyLeague ? ' my-league' : ''}" data-lid="${lid}">
-    ${hdr}${myTeamHtml}
-    ${waiverHtml ? `<div class="ls-lc-divider"></div>${waiverHtml}` : ''}
-  </div>`;
-}
-
-function buildWeeklyMyTeamSection(lg, data) {
-  const { rosters, users, projections, myRosterId } = data;
-  const _empty = { myTeamHtml: '<div class="ls-lc-loading">Your team not found.</div>', worstByPos: {}, worstFlexOccupant: 0, worstQbRank: 0, worstDefRank: 0, worstKRank: 0 };
-  if (!myRosterId) return _empty;
-  const myRoster = rosters.find(r => r.roster_id === myRosterId);
-  if (!myRoster) return { ..._empty, myTeamHtml: '<div class="ls-lc-loading">Roster unavailable.</div>', worstDefRank: 0, worstKRank: 0 };
-  const myUser   = users.find(u => u.user_id === myRoster.owner_id);
-  const teamName = myUser?.metadata?.team_name || myUser?.display_name || 'My Team';
-
-  const players = (myRoster.players || []).map(pid => {
+// ── Reusable weekly lineup computation ────────────────────────────────────
+// Everything the Start/Sit card needs for ONE roster, with no dependence on whose
+// roster it is: weekly ranks, kickoff locks, optimal slotting and a projected total.
+// Used for your own team and for every team on the weekly league board.
+function computeWeeklyLineup({ rosterPlayers, rosterPositions, matchupRow, projections, seasonPool, matchupWeek, pinAllStarters }) {
+  const players = (rosterPlayers || []).map(pid => {
     const norm  = sleeperById[pid];
     const sInfo = norm ? sleeperByName[norm] : null;
     const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
@@ -5166,12 +5428,12 @@ function buildWeeklyMyTeamSection(lg, data) {
     return { pid, name, pos, flexRank, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, rankDelta, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
   });
 
-  const rosterPositions = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
 
   // ── Build locked-starter and game-started maps from matchup data ─────────
   const lockedSlotMap  = {}; // pid → slot: started players pinned to their Sleeper slot
+  const pinnedSlotMap  = {}; // pid → slot: not-yet-played starters, when pinAllStarters
   const gameStartedSet = new Set(); // bench player pids whose game has started
-  const matchupData = data.matchupData;
+  const matchupData = matchupRow;
   if (matchupData) {
     const nonBnSlots = rosterPositions.filter(s => s !== 'BN' && s !== 'IR' && s !== 'TAXI');
     const pp = matchupData.playersPoints || {};
@@ -5180,10 +5442,15 @@ function buildWeeklyMyTeamSection(lg, data) {
     // rankings — ranking files drop players once they've played.
     (matchupData.starters || []).forEach((pid, i) => {
       if (!pid || pid === '0') return;
-      if (i < nonBnSlots.length && playerGameStarted(pid, pp, mw)) lockedSlotMap[pid] = nonBnSlots[i];
+      if (i >= nonBnSlots.length) return;
+      if (playerGameStarted(pid, pp, mw)) lockedSlotMap[pid] = nonBnSlots[i];
+      // pinAllStarters: show the lineup as the manager actually set it rather than the
+      // rank-optimal one. Required for head-to-head — a team scores the players it
+      // started, not the players it should have started.
+      else if (pinAllStarters) pinnedSlotMap[pid] = nonBnSlots[i];
     });
     const starterSet = new Set(matchupData.starters || []);
-    (myRoster?.players || []).forEach(pid => {
+    (rosterPlayers || []).forEach(pid => {
       if (starterSet.has(pid)) return;
       if (playerGameStarted(pid, pp, mw)) gameStartedSet.add(pid); // bench, can't swap in
     });
@@ -5199,9 +5466,82 @@ function buildWeeklyMyTeamSection(lg, data) {
     }
   });
 
-  const slotted  = assignWeeklySlots(players, rosterPositions, lockedSlotMap);
+  const slotted  = assignWeeklySlots(players, rosterPositions, { ...pinnedSlotMap, ...lockedSlotMap });
   const starters = slotted.filter(p => !p.bench);
   const bench    = slotted.filter(p => p.bench);
+
+  // ── Attach season ranks to bench players without a weekly rank ──────────
+  if (seasonPool.length) {
+    const seasonByNorm = {};
+    seasonPool.forEach(sp => {
+      const key = normName(sp.name);
+      const val = { ov: sp.ov, tier: sp.tier ?? null };
+      seasonByNorm[key] = val;
+      const alt = NAME_ALIASES[key];
+      if (alt && !seasonByNorm[alt]) seasonByNorm[alt] = val;
+    });
+    bench.forEach(p => {
+      const hasWeekly = p.flexRank != null || p.posRank != null || p.qbRank != null || p.defRank != null || p.kRank != null;
+      if (!hasWeekly) {
+        const key = normName(p.name);
+        const se = seasonByNorm[key] ?? (NAME_ALIASES[key] ? seasonByNorm[NAME_ALIASES[key]] : null);
+        if (se) { p.seasonOv = se.ov; p.seasonTier = se.tier; }
+      }
+    });
+  }
+
+  // ── Totals ── actual points for players who have played, projections for the rest.
+  const stillOpen = starters.filter(p => !p.locked);
+  const livePts   = starters.reduce((s, p) => s + (p.locked ? (p.liveScore || 0) : 0), 0);
+  const projTotal = starters.reduce((s, p) => s + (p.locked ? (p.liveScore || 0) : (p.projPts || 0)), 0);
+  const remaining = stillOpen.length;
+  // Average rank describes the decisions still open to you — played players are done.
+  const rankPool  = stillOpen.filter(p => p.flexRank != null || p.qbRank != null);
+  const avgRank   = rankPool.length
+    ? Math.round(rankPool.reduce((s, p) => s + (p.qbRank ?? p.flexRank ?? 0), 0) / rankPool.length)
+    : null;
+  return { slotted, starters, bench, projTotal, livePts, remaining, avgRank };
+}
+
+function buildWeeklyLeagueCardHtml(lg, data, loading) {
+  const name      = escHtml(lg.name || 'Unknown League');
+  const meta      = [(lg.settings?.num_teams || ''), lg.scoring_settings?.rec === 1 ? 'PPR' : lg.scoring_settings?.rec === 0.5 ? '½PPR' : 'Std'].filter(Boolean).join('-team · ');
+  const lid       = lg.league_id;
+  const collapsed = collapsedLeagues.has(lid);
+  const collapseBtn = `<button class="lc-collapse-btn" onclick="toggleLeagueCollapse('${lid}')" title="${collapsed ? 'Show league' : 'Hide league'}">${collapsed ? '▶ Show' : '▼ Hide'}</button>`;
+  const hdr = `<div class="ls-lc-header"><span class="ls-lc-name">🏆 ${name}</span>${buildStandingChip(myWeeklyStanding(lg, data))}<span class="ls-lc-meta">${meta}</span>${buildKDefFlags(lg)}${collapseBtn}<button class="ls-lc-open" onclick="openLeagueDetail('${lid}')">Open →</button></div>`;
+
+  if (collapsed) return `<div class="ls-league-card" data-lid="${lid}">${hdr}</div>`;
+  if (loading)   return `<div class="ls-league-card" data-lid="${lid}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
+
+  const { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank } = buildWeeklyMyTeamSection(lg, data);
+  const waiverHtml = buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank, lg);
+  const isMyLeague = data?.myRosterId != null;
+  return `<div class="ls-league-card${isMyLeague ? ' my-league' : ''}" data-lid="${lid}">
+    ${hdr}${myTeamHtml}
+    ${waiverHtml ? `<div class="ls-lc-divider"></div>${waiverHtml}` : ''}
+  </div>`;
+}
+
+function buildWeeklyMyTeamSection(lg, data) {
+  const { rosters, users, projections, myRosterId } = data;
+  const _empty = { myTeamHtml: '<div class="ls-lc-loading">Your team not found.</div>', worstByPos: {}, worstFlexOccupant: 0, worstQbRank: 0, worstDefRank: 0, worstKRank: 0 };
+  if (!myRosterId) return _empty;
+  const myRoster = rosters.find(r => r.roster_id === myRosterId);
+  if (!myRoster) return { ..._empty, myTeamHtml: '<div class="ls-lc-loading">Roster unavailable.</div>', worstDefRank: 0, worstKRank: 0 };
+  const myUser   = users.find(u => u.user_id === myRoster.owner_id);
+  const teamName = myUser?.metadata?.team_name || myUser?.display_name || 'My Team';
+
+  const rosterPositions = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
+  const lineup = computeWeeklyLineup({
+    rosterPlayers: myRoster.players,
+    rosterPositions,
+    matchupRow:    data.matchupData,
+    projections,
+    seasonPool:    weeklySeasonPlayers.length ? weeklySeasonPlayers : (data.csvPlayers || []),
+    matchupWeek:   data.matchupData?.week ?? data.week ?? null,
+  });
+  const { slotted, starters, bench, projTotal, avgRank } = lineup;
   const upgrades = getUpgradePids(slotted);
 
   // Per-position worst rank for players in their own positional slot (not FLEX)
@@ -5221,36 +5561,7 @@ function buildWeeklyMyTeamSection(lg, data) {
   const worstQbRank  = worstOf(swappable.filter(p => p.pos === 'QB'),  'qbRank');
   const worstDefRank = worstOf(swappable.filter(p => p.pos === 'DEF'), 'defRank');
   const worstKRank   = worstOf(swappable.filter(p => p.pos === 'K'),   'kRank');
-
-  // Average rank describes the decisions still open to you — played players are done.
-  const rankPool    = swappable.filter(p => p.flexRank != null || p.qbRank != null);
-  const avgRank     = rankPool.length
-    ? Math.round(rankPool.reduce((s, p) => s + (p.qbRank ?? p.flexRank ?? 0), 0) / rankPool.length)
-    : null;
-  // Actual points for players who have played, projections for the rest.
-  const projTotal = starters.reduce((s, p) => s + (p.locked ? (p.liveScore || 0) : (p.projPts || 0)), 0);
   const noRankings = !weeklyHasRankings;
-
-  // ── Attach season ranks to bench players without a weekly rank ──────────
-  const seasonPool = weeklySeasonPlayers.length ? weeklySeasonPlayers : (data.csvPlayers || []);
-  if (seasonPool.length) {
-    const seasonByNorm = {};
-    seasonPool.forEach(sp => {
-      const key = normName(sp.name);
-      const val = { ov: sp.ov, tier: sp.tier ?? null };
-      seasonByNorm[key] = val;
-      const alt = NAME_ALIASES[key];
-      if (alt && !seasonByNorm[alt]) seasonByNorm[alt] = val;
-    });
-    bench.forEach(p => {
-      const hasWeekly = p.flexRank != null || p.posRank != null || p.qbRank != null || p.defRank != null || p.kRank != null;
-      if (!hasWeekly) {
-        const key = normName(p.name);
-        const se = seasonByNorm[key] ?? (NAME_ALIASES[key] ? seasonByNorm[NAME_ALIASES[key]] : null);
-        if (se) { p.seasonOv = se.ov; p.seasonTier = se.tier; }
-      }
-    });
-  }
 
   // Sort bench: flex-ranked → pos-only-ranked (QB/TE/K/DEF/RB-WR-TE without flex) → season → unranked
   bench.sort((a, b) => {
