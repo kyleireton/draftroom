@@ -138,7 +138,12 @@ body {
 .ldw-margin.dn { background:rgba(239,68,68,.15); color:#f87171; }
 .ldw-margin.ev { background:rgba(148,163,184,.14); color:#cbd5e1; }
 .ldw-note { font-size:10px; color:#475569; margin-left:auto; white-space:nowrap; }
-.ldw-col { width: 186px; flex-shrink: 0; }
+.ldw-col { width: 212px; flex-shrink: 0; }
+.ldw-standing { margin-top:4px; padding-top:4px; border-top:1px solid rgba(255,255,255,.07); }
+.ldw-standing .sb-st-val { font-size:15px; }
+.ldw-standing .sb-st-sub { font-size:9px; }
+.ldw-standing .sb-rangebar { width:38px; }
+.ldw-standing .sb-st-dist { gap:5px; }
 .ldw-col.my-team { position:sticky; left:0; z-index:10; background:#0f1319; box-shadow:3px 0 10px rgba(0,0,0,.6); }
 .ldw-hdr { background:#1a1f2a; border:1px solid #1e2530; border-radius:7px; padding:6px 8px; margin-bottom:6px; }
 .ldw-col.my-team .ldw-hdr { border-color:#3b6fe8; background:#1e3358; }
@@ -3205,6 +3210,28 @@ function spreadOf(values) {
   return { best: Math.min(...values), worst: Math.max(...values), mean, sd };
 }
 
+// Build the standing stat for every roster in one pass: the same "avg startable share"
+// score, league rank and spread that the summary view shows for your own team.
+// Returns a map roster_id → stat object, so the weekly board can label each column.
+function weeklyStandingsByRoster(lg, rosters) {
+  const out = {};
+  if (!weeklyHasRankings) return out;
+  const st   = computeWeeklyStandings(lg, rosters);
+  const vals = st.filter(r => r.score != null).map(r => r.score);
+  if (!vals.length) return out;
+  const spread = spreadOf(vals);
+  st.forEach(r => {
+    if (r.score == null) return;
+    out[r.roster.roster_id] = {
+      rank: r.rank, of: st.length, value: r.score, decimals: 2, prefix: '',
+      label: 'avg startable share', ...spread,
+      wins:   r.roster.settings?.wins   ?? 0,
+      losses: r.roster.settings?.losses ?? 0,
+    };
+  });
+  return out;
+}
+
 function myWeeklyStanding(lg, data) {
   if (!data?.loaded) return undefined;
   if (!data.myRosterId) return null;
@@ -3243,9 +3270,9 @@ function standingTitle(st) {
 
 // Summary-table cell: rank + my own value on top, the league's spread beneath.
 // Lower is better throughout, so the bar runs best (left) to worst (right).
-function buildStandingCell(st) {
-  if (st === undefined) return `<td class="sb-standing sb-st-na">…</td>`;
-  if (!st) return `<td class="sb-standing sb-st-na" title="Upload rankings to rank the teams in this league">—</td>`;
+// The rank / score / record line plus the league-spread bar underneath. Shared by the
+// summary table and the weekly league board so the two can never disagree.
+function standingInnerHtml(st) {
   const d = st.decimals ?? 1, c = standingColor(st.rank, st.of);
   const span = (st.worst != null && st.best != null) ? (st.worst - st.best) : 0;
   const pctOf = v => span > 0 ? Math.max(0, Math.min(100, ((v - st.best) / span) * 100)) : 50;
@@ -3255,14 +3282,24 @@ function buildStandingCell(st) {
   const dist = st.best == null ? '' :
     `<span class="sb-st-sub">${fmtStand(st.best, d)}–${fmtStand(st.worst, d)}`
     + ` · &mu;${fmtStand(st.mean, d)} ±${fmtStand(st.sd, d)}</span>`;
-  return `<td class="sb-standing" title="${escHtml(standingTitle(st))}">`
-    + `<div class="sb-st-top">`
+  return `<div class="sb-st-top">`
     +   `<span class="sb-st-rank" style="color:${c}">#${st.rank}/${st.of}</span>`
     +   `<span class="sb-st-val">${st.prefix || ''}${fmtStand(st.value, d)}</span>`
     +   `<span class="sb-st-rec">${st.wins}-${st.losses}</span>`
     + `</div>`
-    + (bar || dist ? `<div class="sb-st-dist">${bar}${dist}</div>` : '')
-    + `</td>`;
+    + (bar || dist ? `<div class="sb-st-dist">${bar}${dist}</div>` : '');
+}
+
+function buildStandingCell(st) {
+  if (st === undefined) return `<td class="sb-standing sb-st-na">…</td>`;
+  if (!st) return `<td class="sb-standing sb-st-na" title="Upload rankings to rank the teams in this league">—</td>`;
+  return `<td class="sb-standing" title="${escHtml(standingTitle(st))}">${standingInnerHtml(st)}</td>`;
+}
+
+// Same block as a standalone div, for a weekly board column header.
+function buildStandingBlock(st) {
+  if (!st) return '';
+  return `<div class="sb-standing ldw-standing" title="${escHtml(standingTitle(st))}">${standingInnerHtml(st)}</div>`;
 }
 // Compact pill for a league card header.
 function buildStandingChip(st) {
@@ -3352,9 +3389,12 @@ function ldwColumn(t, topTotal, rosterPositions, ctx) {
   const sub = t.remaining
     ? `${t.livePts.toFixed(1)} in · ${t.remaining} to play`
     : 'all played';
-  // League rank by weekly tier — the weekly counterpart of "#N by Player Tier" on the
-  // season board. This is the number that still means something before projections land.
-  const rankHtml = t.rank
+  // The summary view's stat block, per team: #rank/of, score, record, and the league
+  // spread bar with this team's mark on it.
+  const standingHtml = buildStandingBlock(t.standing);
+
+  // Fallback label for a roster the standing couldn't score.
+  const rankHtml = !t.standing && t.rank
     ? `<div class="ldw-rank-row">
          <span class="ldw-rank" title="Rank among all ${teamCount} teams by average starter tier this week">#${t.rank}<span class="lbl"> by weekly tier</span></span>
          ${t.avgTier != null ? `<span class="ldw-tier" style="background:${ldwTierColor(t.avgTier, tierMin, tierMax)}" title="Average starter tier ${t.avgTier}${t.sdTier != null ? ` ±${t.sdTier}` : ''} across ${t.tierCount} ranked starters — lower is better">T ${t.avgTier}${t.sdTier != null ? `<span style="font-weight:400;opacity:.7"> ±${t.sdTier}</span>` : ''}</span>` : ''}
@@ -3377,11 +3417,11 @@ function ldwColumn(t, topTotal, rosterPositions, ctx) {
   return `<div class="ldw-col${cls}">
     <div class="ldw-hdr">
       <div class="ldw-hdr-top">${tag}<span class="ldw-nm" title="${escHtml(t.name)}">${escHtml(t.name)}</span></div>
+      ${standingHtml}
       <div class="ldw-hdr-tot">
-        <span class="v${isTop && hasProj ? ' top' : ''}" title="${hasProj
-          ? 'Optimal lineup by weekly rank — actual points for players who have played, projections for the rest'
-          : 'Sleeper has not published projections for this week yet'}">${hasProj ? t.projTotal.toFixed(1) : '—'}</span>
-        <span class="s">${hasProj ? sub : 'no projections yet'}</span>
+        ${hasProj
+          ? `<span class="v${isTop ? ' top' : ''}" title="Optimal lineup by weekly rank — actual points for players who have played, projections for the rest">${t.projTotal.toFixed(1)}</span><span class="s">proj · ${sub}</span>`
+          : `<span class="s" title="Sleeper has not published projections for this week yet">no projections yet · ${t.starters.length} starters</span>`}
       </div>
       ${rankHtml}
       ${gapHtml}
@@ -3412,6 +3452,10 @@ function renderLeagueDetailWeekly() {
   const seasonPool = weeklySeasonPlayers.length ? weeklySeasonPlayers : leagueCsvPlayers;
   const synthTier  = weeklySyntheticTier();
   const hasProj    = Object.keys(leagueProjections || {}).length > 0;
+  // Same score, rank and league spread the summary view shows — for every team, not
+  // just yours. This is the headline metric: it needs only your rankings, so unlike
+  // the projected total it is always available.
+  const standings  = weeklyStandingsByRoster(leagueMeta, leagueRosters);
 
   const teams = leagueRosters.map(r => {
     const mr = rowBy[r.roster_id];
@@ -3452,6 +3496,7 @@ function renderLeagueDetailWeekly() {
     return {
       setTotal,
       ...weeklyTierScore(L.starters, synthTier),
+      standing:  standings[r.roster_id] || null,
       rosterId:  r.roster_id,
       name:      userMap[r.owner_id] || `Roster ${r.roster_id}`,
       matchupId: mr?.matchup_id ?? null,
@@ -3468,7 +3513,10 @@ function renderLeagueDetailWeekly() {
     if (a.avgTier == null) return 1;
     if (b.avgTier == null) return -1;
     return parseFloat(a.avgTier) - parseFloat(b.avgTier);
-  }).forEach((t, i) => { t.rank = i + 1; });
+  }).forEach((t, i) => { t.tierRank = i + 1; });
+  // The startable-share standing is the headline when available; the tier ordering
+  // still covers any roster it couldn't score (a K/DEF-only roster has no share).
+  teams.forEach(t => { t.rank = t.standing?.rank ?? t.tierRank; });
   const tierVals = teams.map(t => t.avgTier).filter(v => v != null).map(parseFloat);
   const tierMin  = tierVals.length ? Math.min(...tierVals) : 1;
   const tierMax  = tierVals.length ? Math.max(...tierVals) : 10;
@@ -3482,8 +3530,10 @@ function renderLeagueDetailWeekly() {
   // Me first (sticky), my opponent next, then everyone else by projected total.
   // Order the rest by projected points when we have projections; fall back to the
   // tier rank when Sleeper has none yet (early in a week every total would be 0).
-  const rest = teams.filter(t => t !== me && t !== opp)
-    .sort((a, b) => hasProj ? b.projTotal - a.projTotal : (a.rank || 99) - (b.rank || 99));
+  // Order by weekly standing — the metric this board exists to compare. Projected
+  // points only break ties (and stand in when no rankings produced a score).
+  const rest = teams.filter(t => t !== me && t !== opp).sort((a, b) =>
+    ((a.rank || 99) - (b.rank || 99)) || (hasProj ? b.projTotal - a.projTotal : 0));
   const ordered = [me, opp, ...rest].filter(Boolean);
   const topTotal = Math.max(...teams.map(t => t.projTotal), 0);
   const leader   = teams.find(t => Math.abs(t.projTotal - topTotal) < 0.05);
@@ -3509,23 +3559,25 @@ function renderLeagueDetailWeekly() {
     bn.style.display = ''; return;
   }
   const diff = me.projTotal - opp.projTotal;
-  const byTier = me.rank && opp.rank ? opp.rank - me.rank : 0;   // +ve = you rank better
+  const byRank = me.rank && opp.rank ? opp.rank - me.rank : 0;   // +ve = you rank better
   const cls  = hasProj
     ? (Math.abs(diff) < 0.05 ? 'ev' : diff > 0 ? 'up' : 'dn')
-    : (byTier === 0 ? 'ev' : byTier > 0 ? 'up' : 'dn');
+    : (byRank === 0 ? 'ev' : byRank > 0 ? 'up' : 'dn');
   const sign = diff > 0 ? '+' : '';
   bn.innerHTML = `<div class="ldw-bar">
     <div class="ldw-side me"><span class="nm">${escHtml(me.name)}</span>
-      <span class="tot">${hasProj ? me.projTotal.toFixed(1) : '—'}</span>
-      <span class="sub">${me.rank ? `#${me.rank} by weekly tier · ` : ''}${hasProj ? `${me.livePts.toFixed(1)} in · ${me.remaining} to play` : 'no projections yet'}</span></div>
+      <span class="tot">${me.standing ? `#${me.standing.rank}/${me.standing.of}` : (hasProj ? me.projTotal.toFixed(1) : '—')}</span>
+      <span class="sub">${me.standing ? `${me.standing.value.toFixed(2)} startable share` : ''}${hasProj ? ` · ${me.projTotal.toFixed(1)} proj · ${me.remaining} to play` : ''}</span></div>
     <span class="ldw-margin ${cls}" title="${hasProj
       ? 'Projected margin with both teams playing their rank-optimal lineup — actual points for players who have played, projections for the rest'
-      : 'No projections yet — comparing average starter tier instead (lower is better)'}">${hasProj
+      : 'No projections published yet — comparing average startable share instead (lower is better)'}">${hasProj
       ? `${sign}${diff.toFixed(1)}`
-      : (me.avgTier != null && opp.avgTier != null ? `T ${me.avgTier} v ${opp.avgTier}` : '—')}</span>
+      : (me.standing && opp.standing
+          ? `${me.standing.value.toFixed(2)} v ${opp.standing.value.toFixed(2)}`
+          : '—')}</span>
     <div class="ldw-side"><span class="nm">${escHtml(opp.name)}</span>
-      <span class="tot">${hasProj ? opp.projTotal.toFixed(1) : '—'}</span>
-      <span class="sub">${opp.rank ? `#${opp.rank} by weekly tier · ` : ''}${hasProj ? `${opp.livePts.toFixed(1)} in · ${opp.remaining} to play` : 'no projections yet'}</span></div>
+      <span class="tot">${opp.standing ? `#${opp.standing.rank}/${opp.standing.of}` : (hasProj ? opp.projTotal.toFixed(1) : '—')}</span>
+      <span class="sub">${opp.standing ? `${opp.standing.value.toFixed(2)} startable share` : ''}${hasProj ? ` · ${opp.projTotal.toFixed(1)} proj · ${opp.remaining} to play` : ''}</span></div>
     <div class="ldw-note">Week ${leagueWeek ?? '—'} · optimal lineups${hasProj ? (highNote ? ' · ' + highNote : '') : ' · projections not published yet'}</div>
   </div>`;
   bn.style.display = '';
