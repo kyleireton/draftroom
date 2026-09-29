@@ -4530,17 +4530,29 @@ function getFantasyWeekStart() {
   return tue.getTime();
 }
 
+// The earliest kickoff in any NFL week is Thursday night, so nothing can legitimately
+// be locked before Thursday 00:00 local. This is the hard Tuesday-morning reset: it holds
+// even when last week's scoreboard states or stat lines are still sitting in cache.
+function getFantasyWeekLockFloor() {
+  const d = new Date(getFantasyWeekStart());
+  d.setDate(d.getDate() + 2); // Tuesday 00:00 → Thursday 00:00 local
+  return d.getTime();
+}
+
 // True if this team's game has already kicked off AND belongs to the current fantasy week.
-// Resets every Tuesday 00:00 local — locks only games that kicked off after that.
+// Every lock signal must pass the week window first — a cached 'post' from last Monday
+// is not evidence about this week.
 function teamGameStarted(abbr) {
   if (!abbr) return false;
-  const st = weeklyGameStates[abbr];
-  if (st === 'in' || st === 'post') return true; // ESPN says live or final
+  if (Date.now() < getFantasyWeekLockFloor()) return false; // Tue/Wed: nothing has played yet
   const ko = weeklyGameKickoffs[abbr];
-  if (ko == null) return false;
-  if (Date.now() < ko) return false;             // game hasn't kicked off yet
+  if (ko == null) return false;                  // no game on the schedule (bye / no data)
   if (ko < getFantasyWeekStart()) return false;  // kickoff was last week — ignore
-  return true;
+  if (Date.now() >= ko) return true;
+  // Kickoff still ahead by our clock but ESPN says live/final — trust ESPN over a skewed
+  // local clock, but only for a game inside this week's window.
+  const st = weeklyGameStates[abbr];
+  return st === 'in' || st === 'post';
 }
 
 // Sleeper abbreviation for a player id (DEF ids are the abbreviation itself).
@@ -4551,10 +4563,16 @@ function lockTeamOfPid(pid) {
 }
 
 // True if THIS player's game is underway or finished, from any signal we have.
-// ESPN kickoff is preferred (locks the whole slate the moment a game starts), but a
-// non-zero Sleeper stat line is proof on its own and needs no third-party data.
-function playerGameStarted(pid, playersPoints) {
-  if (teamGameStarted(lockTeamOfPid(pid))) return true;
+// Kickoff data is authoritative when we have it. The Sleeper stat-line fallback exists
+// only for the case where ESPN gave us nothing — and it is week-gated, because last
+// week's points are non-zero all Tuesday morning.
+function playerGameStarted(pid, playersPoints, matchupWeek) {
+  const team = lockTeamOfPid(pid);
+  if (teamGameStarted(team)) return true;
+  if (Date.now() < getFantasyWeekLockFloor()) return false;        // Tue/Wed: hard reset
+  if (matchupWeek != null && weeklyNflWeek != null
+      && matchupWeek !== weeklyNflWeek) return false;              // stat line is from another week
+  if (team && weeklyGameKickoffs[team] != null) return false;      // kickoff data already answered
   const pts = playersPoints?.[pid];
   return typeof pts === 'number' && pts !== 0;
 }
@@ -4828,8 +4846,11 @@ function updateWeeklyUploadStatus() {
       Object.keys(weeklyDefMap).length  ? `${Object.keys(weeklyDefMap).length} DEF`   : '',
       Object.keys(weeklyKMap).length    ? `${Object.keys(weeklyKMap).length} K`       : '',
     ].filter(Boolean);
-    el.textContent = `✓ ${parts.join(' · ')}`;
-    el.className   = 'ls-upload-status ok';
+    const stale = weeklyMapsWeek != null && weeklyNflWeek != null && weeklyMapsWeek !== weeklyNflWeek;
+    el.textContent = stale
+      ? `⚠ Rankings are from week ${weeklyMapsWeek} — upload week ${weeklyNflWeek}`
+      : `✓ ${parts.join(' · ')}`;
+    el.className   = stale ? 'ls-upload-status' : 'ls-upload-status ok';
   } else {
     el.textContent = 'Upload weekly rankings CSV to see recommendations';
     el.className   = 'ls-upload-status';
@@ -5154,16 +5175,17 @@ function buildWeeklyMyTeamSection(lg, data) {
   if (matchupData) {
     const nonBnSlots = rosterPositions.filter(s => s !== 'BN' && s !== 'IR' && s !== 'TAXI');
     const pp = matchupData.playersPoints || {};
+    const mw = matchupData.week ?? data.week ?? null;
     // A started player is pinned regardless of whether he still appears in the weekly
     // rankings — ranking files drop players once they've played.
     (matchupData.starters || []).forEach((pid, i) => {
       if (!pid || pid === '0') return;
-      if (i < nonBnSlots.length && playerGameStarted(pid, pp)) lockedSlotMap[pid] = nonBnSlots[i];
+      if (i < nonBnSlots.length && playerGameStarted(pid, pp, mw)) lockedSlotMap[pid] = nonBnSlots[i];
     });
     const starterSet = new Set(matchupData.starters || []);
     (myRoster?.players || []).forEach(pid => {
       if (starterSet.has(pid)) return;
-      if (playerGameStarted(pid, pp)) gameStartedSet.add(pid); // bench, can't swap in
+      if (playerGameStarted(pid, pp, mw)) gameStartedSet.add(pid); // bench, can't swap in
     });
   }
   // Annotate players with locked / liveScore / gameStarted flags
@@ -5469,13 +5491,16 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
 async function openWeeklySummary() {
   if (!leagueList.length) { showToast('Connect your Sleeper account first'); return; }
   showScreen('weekly-summary');
-  if (!weeklyNflWeek) {
-    try {
-      const s = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json());
-      weeklyNflWeek = s?.display_week || s?.week || 1;
-      if (s?.season) weeklyNflYear = parseInt(s.season) || weeklyNflYear;
-    }
-    catch(_) { weeklyNflWeek = 1; }
+  // Always re-read the week: a tab left open since Monday must roll over on Tuesday.
+  const prevWeek = weeklyNflWeek;
+  try {
+    const s = await fetch('https://api.sleeper.app/v1/state/nfl').then(r => r.json());
+    weeklyNflWeek = s?.display_week || s?.week || weeklyNflWeek || 1;
+    if (s?.season) weeklyNflYear = parseInt(s.season) || weeklyNflYear;
+  }
+  catch(_) { weeklyNflWeek = weeklyNflWeek || 1; }
+  if (prevWeek != null && prevWeek !== weeklyNflWeek) {
+    allLeaguesCache = {};   // last week's rosters, matchups and starters are all stale
   }
   // Kickoff data drives every lock — load it here, not as a side effect of whichever
   // league loader happens to run first.
@@ -5514,7 +5539,7 @@ function renderWeeklySummary() {
         // same cache WITHOUT matchupData, and reusing that entry silently disables every
         // start/sit lock. Require the weekly-specific payload (null = fetched, none found).
         const cached = allLeaguesCache[lg.league_id];
-        if (cached?.loaded && cached.matchupData !== undefined) {
+        if (cached?.loaded && cached.matchupData !== undefined && cached.week === weeklyNflWeek) {
           const el = list.children[i];
           if (el) { const tmp = document.createElement('div'); tmp.innerHTML = buildWeeklyLeagueCardHtml(lg, cached, false); el.replaceWith(tmp.firstElementChild); }
         } else {
@@ -5558,12 +5583,13 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
     if (myRosterId && Array.isArray(matchupsRaw)) {
       const myM = matchupsRaw.find(m => m.roster_id === myRosterId);
       if (myM) matchupData = {
+        week,
         starters:       myM.starters       || [],
         startersPoints: myM.starters_points || {},
         playersPoints:  myM.players_points  || {},
       };
     }
-    const entry = { rosters, users, projections, myRosterId, matchupData, loaded: true };
+    const entry = { rosters, users, projections, myRosterId, matchupData, week, loaded: true };
     allLeaguesCache[lg.league_id] = entry;
     const list = document.getElementById('ws-leagues-list');
     if (list && list.children[cardIndex]) {
