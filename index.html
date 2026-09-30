@@ -5506,7 +5506,7 @@ function buildWeeklyRankChip(p) {
 }
 
 // Weekly player row
-function weeklyPlayerRow(p, isUpgrade) {
+function weeklyPlayerRow(p, isUpgrade, upgradeLabel) {
   const dn = displayName(p.name);
 
   // Chip: live score badge for locked starters, normal rank chip otherwise
@@ -5521,7 +5521,7 @@ function weeklyPlayerRow(p, isUpgrade) {
 
   const slotL    = (p.slot && p.slot !== 'BN' && p.slot !== p.pos) ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0">${p.slot === 'SUPER_FLEX' ? 'SF' : p.slot === 'REC_FLEX' ? 'RF' : p.slot}</span>` : '';
   const oppTag   = p.opp ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0;min-width:28px">vs ${p.opp}</span>` : '';
-  const upgBadge = isUpgrade ? `<span style="font-size:9px;font-weight:800;color:#22c55e;background:rgba(34,197,94,0.18);border-radius:3px;padding:1px 5px;flex-shrink:0">⬆ START</span>` : '';
+  const upgBadge = isUpgrade ? `<span style="font-size:9px;font-weight:800;color:#22c55e;background:rgba(34,197,94,0.18);border-radius:3px;padding:1px 5px;flex-shrink:0">⬆ ${upgradeLabel || 'START'}</span>` : '';
   const projSpan = p.projPts != null && !p.locked ? `<span class="ls-p-proj" style="color:#94a3b8">${p.projPts}</span>` : `<span class="ls-p-proj"></span>`;
   const rowBg    = p.locked ? 'background:rgba(255,255,255,0.02);' : isUpgrade ? 'background:rgba(34,197,94,0.06);' : '';
   // Rank-change delta badge + right-border accent (|delta|≥3, no conflict with position coloring)
@@ -5706,8 +5706,8 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
   if (collapsed) return `<div class="ls-league-card" data-lid="${lid}">${hdr}</div>`;
   if (loading)   return `<div class="ls-league-card" data-lid="${lid}">${hdr}<div class="ls-lc-loading">Loading…</div></div>`;
 
-  const { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank } = buildWeeklyMyTeamSection(lg, data);
-  const waiverHtml = buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank, lg);
+  const { myTeamHtml } = buildWeeklyMyTeamSection(lg, data);
+  const waiverHtml = buildWeeklyWaiverSection(data, lg);
   const isMyLeague = data?.myRosterId != null;
   return `<div class="ls-league-card${isMyLeague ? ' my-league' : ''}" data-lid="${lid}">
     ${hdr}${myTeamHtml}
@@ -5717,10 +5717,10 @@ function buildWeeklyLeagueCardHtml(lg, data, loading) {
 
 function buildWeeklyMyTeamSection(lg, data) {
   const { rosters, users, projections, myRosterId } = data;
-  const _empty = { myTeamHtml: '<div class="ls-lc-loading">Your team not found.</div>', worstByPos: {}, worstFlexOccupant: 0, worstQbRank: 0, worstDefRank: 0, worstKRank: 0 };
+  const _empty = { myTeamHtml: '<div class="ls-lc-loading">Your team not found.</div>' };
   if (!myRosterId) return _empty;
   const myRoster = rosters.find(r => r.roster_id === myRosterId);
-  if (!myRoster) return { ..._empty, myTeamHtml: '<div class="ls-lc-loading">Roster unavailable.</div>', worstDefRank: 0, worstKRank: 0 };
+  if (!myRoster) return { myTeamHtml: '<div class="ls-lc-loading">Roster unavailable.</div>' };
   const myUser   = users.find(u => u.user_id === myRoster.owner_id);
   const teamName = myUser?.metadata?.team_name || myUser?.display_name || 'My Team';
 
@@ -5736,23 +5736,6 @@ function buildWeeklyMyTeamSection(lg, data) {
   const { slotted, starters, bench, projTotal, avgRank } = lineup;
   const upgrades = getUpgradePids(slotted);
 
-  // Per-position worst rank for players in their own positional slot (not FLEX)
-  // Locked starters are excluded everywhere below: they can't be replaced, so they must
-  // not set a waiver threshold. An UNRANKED but swappable starter counts as worst (999),
-  // not best — otherwise a starter who fell out of the rankings hides every upgrade.
-  const UNRANKED = 999;
-  const swappable = starters.filter(p => !p.locked);
-  const worstOf = (pool, key) => pool.reduce((w, p) => Math.max(w, p[key] ?? UNRANKED), 0);
-
-  const worstByPos = {};
-  ['RB','WR','TE'].forEach(pos => {
-    worstByPos[pos] = worstOf(swappable.filter(s => s.pos === pos && !FLEX_SLOTS.has(s.slot)), 'flexRank');
-  });
-  // Worst rank of whoever is actually sitting in a FLEX slot (any flex-eligible pos)
-  const worstFlexOccupant = worstOf(swappable.filter(s => FLEX_SLOTS.has(s.slot) && ['RB','WR','TE'].includes(s.pos)), 'flexRank');
-  const worstQbRank  = worstOf(swappable.filter(p => p.pos === 'QB'),  'qbRank');
-  const worstDefRank = worstOf(swappable.filter(p => p.pos === 'DEF'), 'defRank');
-  const worstKRank   = worstOf(swappable.filter(p => p.pos === 'K'),   'kRank');
   const noRankings = !weeklyHasRankings;
 
   // Sort bench: flex-ranked → pos-only-ranked (QB/TE/K/DEF/RB-WR-TE without flex) → season → unranked
@@ -5817,10 +5800,14 @@ function buildWeeklyMyTeamSection(lg, data) {
     </div>` : ''}
   </div>`;
 
-  return { myTeamHtml, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank };
+  return { myTeamHtml };
 }
 
-function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRank, worstDefRank, worstKRank, lg) {
+// How many available players each waiver column lists. Fixed, not derived from your
+// roster — you always want to see the market, whether or not you have room.
+const WAIVER_FLEX_N = 6, WAIVER_QB_N = 3, WAIVER_DEF_N = 3, WAIVER_K_N = 3;
+
+function buildWeeklyWaiverSection(data, lg) {
   if (!weeklyHasRankings) return '';
   const { rosters } = data;
   const leagueSlots    = new Set(lg?.roster_positions || []);
@@ -5855,10 +5842,45 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
 
   const noRankPlayer = (label) => `<div class="ls-lc-loading">${label}</div>`;
 
-  // Only list players who actually beat someone startable — same rule Top DEF / Top K already use.
+  // ── What counts as an upgrade? ───────────────────────────────────────
+  // The lists below are a fixed top-N of what's available — they are never filtered,
+  // so you always see the market. Highlighting is the comparison: a player is an
+  // upgrade if he outranks the WORST thing you roster at that spot. Two cases make
+  // everything an upgrade: an open roster slot (nothing to beat) and an unranked
+  // player of your own (anyone ranked beats him).
+  const myRoster  = (rosters || []).find(r => r.roster_id === data.myRosterId);
+  const myPids    = myRoster?.players || [];
+  const rosterCap = (lg?.roster_positions || []).filter(x => x !== 'TAXI').length;
+  const openSlots = Math.max(0, rosterCap - myPids.length);
+
+  const posOfPid = pid => (sleeperByName[sleeperById[pid]]?.pos)
+                       || _sleeperRawPlayers?.[pid]?.position || '?';
+  // Worst (highest) rank among my own players at a spot; Infinity = nothing to beat.
+  const myWorst = (predicate, rankOf) => {
+    if (openSlots > 0) return Infinity;
+    const mine = myPids.filter(predicate);
+    if (!mine.length) return Infinity;
+    let worst = 0;
+    for (const pid of mine) {
+      const r = rankOf(pid);
+      if (r == null) return Infinity;      // unranked player of mine — anyone beats him
+      if (r > worst) worst = r;
+    }
+    return worst;
+  };
+  const qbBar   = myWorst(pid => posOfPid(pid) === 'QB',
+                          pid => weeklyQbMap[sleeperById[pid]]?.rank ?? null);
+  const flexBar = myWorst(pid => ['RB','WR','TE'].includes(posOfPid(pid)),
+                          pid => weeklyFlexMap[sleeperById[pid]]?.rank ?? null);
+  const defBar  = myWorst(pid => posOfPid(pid) === 'DEF',
+                          pid => weeklyDefMap[defAlias[pid] ?? defAlias[toSleeperAbbr(pid)]]?.rank ?? null);
+  const kBar    = myWorst(pid => posOfPid(pid) === 'K',
+                          pid => lookupWeeklyK(pid)?.rank ?? null);
+
+  // Fixed top-N of what's on waivers — always shown, never filtered by your roster.
   const availQbs = Object.entries(weeklyQbMap)
-    .filter(([norm, e]) => !rosteredNorms.has(norm) && (!worstQbRank || e.rank < worstQbRank))
-    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 2)
+    .filter(([norm]) => !rosteredNorms.has(norm))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, WAIVER_QB_N)
     .map(([norm, e]) => {
       const pv = weeklyPrevQbMap[norm]; const rankDelta = pv ? pv.rank - e.rank : null;
       return { pid: norm, name: e.name, pos: 'QB', flexRank: null, posRank: null, posTier: null,
@@ -5866,13 +5888,9 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
         opp: e.opp, total: e.total, matchup: e.matchup, rankDelta, projPts: null };
     });
 
-  // Bar = the worst startable rank this player could displace: his own positional slot,
-  // or the flex slot, whichever is easier to beat. 0 means we can't tell, so don't filter.
-  const flexBar = e => Math.max(worstByPos[e.pos] ?? 0, worstFlexOccupant || 0);
   const availFlex = Object.entries(weeklyFlexMap)
-    .filter(([norm, e]) => !rosteredNorms.has(norm) && ['RB','WR','TE'].includes(e.pos)
-                        && (!flexBar(e) || e.rank < flexBar(e)))
-    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 5)
+    .filter(([norm, e]) => !rosteredNorms.has(norm) && ['RB','WR','TE'].includes(e.pos))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, WAIVER_FLEX_N)
     .map(([norm, e]) => {
       const posMap = e.pos === 'RB' ? weeklyRbMap : e.pos === 'WR' ? weeklyWrMap : weeklyTeMap;
       const pe = posMap[norm] || null;
@@ -5883,8 +5901,8 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
     });
 
   const availDefs = !hasDefSlot ? [] : Object.entries(weeklyDefMap)
-    .filter(([abbr]) => !rosteredDefAbbrs.has(abbr) && (!worstDefRank || weeklyDefMap[abbr].rank < worstDefRank))
-    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
+    .filter(([abbr]) => !rosteredDefAbbrs.has(abbr))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, WAIVER_DEF_N)
     .map(([abbr, e]) => {
       const pv = weeklyPrevDefMap[abbr]; const rankDelta = pv ? pv.rank - e.rank : null;
       return { pid: abbr, name: e.name, pos: 'DEF', flexRank: null, posRank: null, posTier: null,
@@ -5894,8 +5912,8 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
 
   const rosteredKTeams = rosteredKickerTeams(rosters);
   const availKs = !hasKSlot ? [] : Object.entries(weeklyKMap)
-    .filter(([abbr, e]) => !rosteredKTeams.has(abbr) && (!worstKRank || e.rank < worstKRank))
-    .sort((a, b) => a[1].rank - b[1].rank).slice(0, 3)
+    .filter(([abbr]) => !rosteredKTeams.has(abbr))
+    .sort((a, b) => a[1].rank - b[1].rank).slice(0, WAIVER_K_N)
     .map(([abbr, e]) => {
       const pv = weeklyPrevKMap[abbr]; const rankDelta = pv ? pv.rank - e.rank : null;
       return { pid: abbr, name: kickerDisplayName(e), pos: 'K', flexRank: null, posRank: null, posTier: null,
@@ -5903,19 +5921,23 @@ function buildWeeklyWaiverSection(data, worstByPos, worstFlexOccupant, worstQbRa
         opp: e.opp, rankDelta, projPts: null };
     });
 
-  const qbRows   = availQbs.map(p => weeklyPlayerRow(p, true)).join('')   || noRankPlayer('No upgrades on waivers');
-  const flexRows = availFlex.map(p => weeklyPlayerRow(p, true)).join('')   || noRankPlayer('No upgrades on waivers');
+  const emptyMsg = 'No ranked players available';
+  const qbRows   = availQbs.map(p  => weeklyPlayerRow(p, (p.qbRank   ?? 9999) < qbBar,   'ADD')).join('') || noRankPlayer(emptyMsg);
+  const flexRows = availFlex.map(p => weeklyPlayerRow(p, (p.flexRank ?? 9999) < flexBar, 'ADD')).join('') || noRankPlayer(emptyMsg);
 
+  const openNote = openSlots > 0
+    ? `<span style="font-size:9px;font-weight:600;color:#4ade80;margin-left:5px" title="${openSlots} open roster slot${openSlots > 1 ? 's' : ''} — nothing has to be dropped, so every available player is flagged">${openSlots} open slot${openSlots > 1 ? 's' : ''}</span>`
+    : '';
   const mainGrid = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-    <div><div class="ls-lc-section-title">⚡ Top QB</div>${qbRows}</div>
-    <div><div class="ls-lc-section-title">⚡ Top Flex</div>${flexRows}</div>
+    <div><div class="ls-lc-section-title">⚡ Top ${WAIVER_QB_N} QB${openNote}</div>${qbRows}</div>
+    <div><div class="ls-lc-section-title">⚡ Top ${WAIVER_FLEX_N} Flex</div>${flexRows}</div>
   </div>`;
 
   let extraGrid = '';
   if (hasDefSlot || hasKSlot) {
     const cols = [hasDefSlot, hasKSlot].filter(Boolean).length;
-    const defCol = hasDefSlot ? `<div><div class="ls-lc-section-title">⚡ Top DEF</div>${availDefs.map(p => weeklyPlayerRow(p, (p.defRank ?? 9999) < worstDefRank)).join('') || noRankPlayer('No upgrades on waivers')}</div>` : '';
-    const kCol   = hasKSlot   ? `<div><div class="ls-lc-section-title">⚡ Top K</div>${availKs.map(p => weeklyPlayerRow(p, (p.kRank ?? 9999) < worstKRank)).join('') || noRankPlayer(Object.keys(weeklyKMap).length ? 'No upgrades on waivers' : 'Re-upload weekly ranks for K')}</div>` : '';
+    const defCol = hasDefSlot ? `<div><div class="ls-lc-section-title">⚡ Top ${WAIVER_DEF_N} DEF</div>${availDefs.map(p => weeklyPlayerRow(p, (p.defRank ?? 9999) < defBar, 'ADD')).join('') || noRankPlayer(emptyMsg)}</div>` : '';
+    const kCol   = hasKSlot   ? `<div><div class="ls-lc-section-title">⚡ Top ${WAIVER_K_N} K</div>${availKs.map(p => weeklyPlayerRow(p, (p.kRank ?? 9999) < kBar, 'ADD')).join('') || noRankPlayer(Object.keys(weeklyKMap).length ? emptyMsg : 'Re-upload weekly ranks for K')}</div>` : '';
     extraGrid = `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:8px;margin-top:8px">${defCol}${kCol}</div>`;
   }
 
