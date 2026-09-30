@@ -3363,8 +3363,9 @@ function ldwSlotLabel(slot) {
 function ldwRow(p) {
   const rank = p.qbRank ?? p.flexRank ?? p.defRank ?? p.kRank ?? p.posRank ?? null;
   const bg   = POS_CHIP_COLOR[p.pos] || '#374151';
+  const est  = p.flexSynthetic && rank === p.flexRank;
   const chip = rank != null
-    ? `<span class="ldw-chip" style="background:${bg}" title="${p.pos} weekly rank #${rank}">${rank}</span>`
+    ? `<span class="ldw-chip" style="background:${bg}${est ? ';opacity:.72' : ''}" title="${p.pos} weekly rank ${est ? '~' : ''}#${rank}${est ? ' (estimated — beyond the FLEX list)' : ''}">${est ? '~' : ''}${rank}</span>`
     : `<span class="ldw-chip" style="background:#1f2937;color:#4b5563" title="No weekly rank">—</span>`;
   // Played players show what they actually scored; everyone else shows their projection.
   const played = p.locked || p.gameStarted;
@@ -5246,6 +5247,63 @@ function parseWeeklyAllCsv(text, callback) {
   }});
 }
 
+// ── Flex ranks for players the FLEX list doesn't reach ─────────────────────
+// The FLEX column is a top-N merge of RB/WR/TE, but the positional columns run deeper
+// (e.g. RB to 50 while only RB1–36 reach the flex 100). Those deeper players had no flex
+// rank at all, so a weak starter silently vanished from the team average instead of
+// dragging it down. Give each one an estimated flex rank.
+//
+// Method: past the cut, one positional step is worth SEVERAL flex steps, because the
+// other positions are interleaving. Measure each position's local slope from the last
+// few of its players that DID make the flex list, extrapolate, then re-rank the whole
+// overflow into one sequence continuing the flex list. That keeps positional order,
+// interleaves positions correctly, and leaves no ties.
+const SYNTH_SLOPE_WINDOW = 10;
+function synthesizeFlexRanks(flexMap, posMaps) {
+  const N = Object.keys(flexMap || {}).length;
+  if (!N) return flexMap;
+  const out = { ...flexMap };
+  const overflow = [];
+
+  ['RB','WR','TE'].forEach(pos => {
+    const map = posMaps[pos] || {};
+    // (positional rank → flex rank) for this position's players that made the flex list
+    const paired = [];
+    Object.entries(map).forEach(([key, e]) => {
+      const fe = flexMap[key];
+      if (fe?.rank != null && e?.rank != null) paired.push([e.rank, fe.rank]);
+    });
+    if (paired.length < 2) return;                  // can't fit a slope; leave them unranked
+    paired.sort((a, b) => a[0] - b[0]);
+    const tail  = paired.slice(-SYNTH_SLOPE_WINDOW);
+    const dPos  = tail[tail.length - 1][0] - tail[0][0];
+    const dFlex = tail[tail.length - 1][1] - tail[0][1];
+    const slope = dPos > 0 ? Math.max(1, dFlex / dPos) : 1;
+    const [lastPos, lastFlex] = paired[paired.length - 1];
+
+    Object.entries(map).forEach(([key, e]) => {
+      if (out[key] || e?.rank == null) return;      // already has a real flex rank
+      overflow.push({ key, pos, e, est: lastFlex + slope * (e.rank - lastPos) });
+    });
+  });
+
+  // One merged sequence continuing the real list — dense, no ties.
+  overflow.sort((a, b) => a.est - b.est);
+  overflow.forEach((o, i) => {
+    out[o.key] = {
+      rank: N + 1 + i, pos: o.pos, name: o.e.name,
+      team: o.e.team || '', opp: o.e.opp || '',
+      total: o.e.total ?? null, matchup: o.e.matchup ?? null,
+      posRank: o.e.rank, synthetic: true,
+    };
+  });
+  if (overflow.length) {
+    console.log(`[Weekly] estimated flex rank for ${overflow.length} deep positional player(s) `
+              + `(#${N + 1}–#${N + overflow.length})`);
+  }
+  return out;
+}
+
 function onWeeklyAllUpload(evt) {
   const file = evt.target.files?.[0]; evt.target.value = ''; if (!file) return;
   const reader = new FileReader();
@@ -5268,7 +5326,8 @@ function onWeeklyAllUpload(evt) {
     weeklyTeMap   = maps.teMap;
     weeklyDefMap  = maps.defMap;
     weeklyKMap    = maps.kMap;
-    weeklyFlexMap = maps.flexMap;
+    weeklyFlexMap = synthesizeFlexRanks(maps.flexMap,
+                      { RB: maps.rbMap, WR: maps.wrMap, TE: maps.teMap });
     weeklyMapsWeek = weeklyNflWeek ?? weeklyMapsWeek;
     Object.values(allLeaguesCache).forEach(e => { if (e) delete e._wkStanding; });
     weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
@@ -5497,8 +5556,13 @@ function buildWeeklyRankChip(p) {
   const matchTip = p.matchup != null ? ` · vs ${p.opp||'?'} matchup ${p.matchup}/32 (${matchupLabel(p.matchup)})` : '';
   const posTip   = p.posRank != null ? ` · ${p.pos}${p.posTier ? ` T${p.posTier}` : ''} #${p.posRank}` : '';
   if (flexRank != null) {
-    const tip = `Flex #${flexRank}${posTip}${matchTip}`;
-    return soloChip(`#${flexRank}`, tip);
+    // "~" marks a rank we estimated because this player sits past the end of the
+    // FLEX list — real enough to rank against, but not sourced.
+    const est = p.flexSynthetic ? '~' : '';
+    const tip = p.flexSynthetic
+      ? `Flex ~#${flexRank} (estimated — beyond the FLEX list)${posTip}${matchTip}`
+      : `Flex #${flexRank}${posTip}${matchTip}`;
+    return soloChip(`${est}#${flexRank}`, tip);
   }
   // Has positional rank only (not in flex map) — show "POS#N" explicitly
   const tip = `${p.pos}${p.posTier ? ` T${p.posTier}` : ''} #${p.posRank}${matchTip}`;
@@ -5582,7 +5646,7 @@ function computeWeeklyLineup({ rosterPlayers, rosterPositions, matchupRow, proje
     const sInfo = norm ? sleeperByName[norm] : null;
     const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
     const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
-    let flexRank = null, posRank = null, posTier = null,
+    let flexRank = null, flexSynthetic = false, posRank = null, posTier = null,
         qbRank = null, qbTier = null,
         defRank = null, defTier = null, defSpread = null,
         kRank = null, kProjection = null,
@@ -5600,7 +5664,7 @@ function computeWeeklyLineup({ rosterPlayers, rosterPositions, matchupRow, proje
       if (e) { kRank = e.rank; kProjection = e.projection; opp = e.opp; }
     } else {
       const fe = lookupWeekly(name, norm, weeklyFlexMap);
-      if (fe) { flexRank = fe.rank; opp = fe.opp; total = fe.total; matchup = fe.matchup; }
+      if (fe) { flexRank = fe.rank; flexSynthetic = !!fe.synthetic; opp = fe.opp; total = fe.total; matchup = fe.matchup; }
       const posMap = pos === 'RB' ? weeklyRbMap : pos === 'WR' ? weeklyWrMap : pos === 'TE' ? weeklyTeMap : null;
       if (posMap) { const pe = lookupWeekly(name, norm, posMap); if (pe) { posRank = pe.rank; posTier = pe.tier; if (!opp) opp = pe.opp; if (!total) total = pe.total; if (!matchup) matchup = pe.matchup; } }
     }
@@ -5617,7 +5681,7 @@ function computeWeeklyLineup({ rosterPlayers, rosterPositions, matchupRow, proje
       const pv = weeklyPrevFlexMap[norm] ?? weeklyPrevFlexMap[normName(name)];
       const curRank = flexRank ?? posRank; if (pv && curRank != null) rankDelta = pv.rank - curRank;
     }
-    return { pid, name, pos, flexRank, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, rankDelta, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
+    return { pid, name, pos, flexRank, flexSynthetic, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, rankDelta, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
   });
 
 
