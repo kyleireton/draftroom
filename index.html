@@ -968,6 +968,9 @@ body {
 .summary-bar th:nth-child(2), .summary-bar td:nth-child(2) { padding-left:4px; }
 .summary-bar th:nth-child(3), .summary-bar td:nth-child(3) { width:auto; }
 .sb-standing { white-space:nowrap; }
+.sb-h2h { white-space:nowrap; }
+.sb-h2h-pct { font-weight:800; font-size:14px; font-variant-numeric:tabular-nums; }
+.sb-h2h-mar { font-weight:700; font-size:11px; color:#94a3b8; font-variant-numeric:tabular-nums; }
 .sb-st-top { display:flex; align-items:baseline; gap:7px; }
 .sb-st-rank { font-weight:800; font-size:12px; font-variant-numeric:tabular-nums; }
 .sb-st-val  { font-weight:800; font-size:14px; color:#f1f5f9; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
@@ -3232,6 +3235,91 @@ function weeklyStandingsByRoster(lg, rosters) {
   return out;
 }
 
+// ══ Head-to-head win probability ════════════════════════════════════
+// A deliberately simple model, and worth knowing its assumptions before trusting it:
+//
+//   1. Each unplayed starter scores Normal(projection, cv_pos x projection). The
+//      coefficients below are rough league-wide averages, NOT fitted to your scoring.
+//   2. Players are independent. They are not — a QB and his WR1 are strongly
+//      correlated — so the real spread is a little wider than this says.
+//   3. A player who has already played contributes his actual score and zero variance,
+//      which is why the interval tightens as the week goes on.
+//
+// Sum of normals is normal, so the margin is Normal(mu, sigma) and the win
+// probability is Phi(mu/sigma). Treat it as a sanity check, not a betting line.
+const SCORE_CV = { QB: 0.33, RB: 0.55, WR: 0.60, TE: 0.65, K: 0.45, DEF: 0.75 };
+const MIN_PLAYER_SD = 2.0;   // nobody is truly deterministic
+
+// Standard normal CDF (Abramowitz & Stegun 7.1.26 erf approximation).
+function normalCdf(z) {
+  const sign = z < 0 ? -1 : 1, x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t
+                - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * y);
+}
+
+// Mean and sd of a lineup's final score, given computeWeeklyLineup output.
+function lineupScoreDist(lineup) {
+  let mean = 0, varSum = 0;
+  (lineup?.starters || []).forEach(p => {
+    if (p.locked) { mean += p.liveScore || 0; return; }      // already played: known
+    const proj = p.projPts || 0;
+    mean += proj;
+    const sd = Math.max(MIN_PLAYER_SD, (SCORE_CV[p.pos] ?? 0.6) * proj);
+    varSum += sd * sd;
+  });
+  return { mean, sd: Math.sqrt(varSum) };
+}
+
+// Win probability and an 80% interval on the margin, for my matchup in one league.
+// Returns null when there is no opponent or no projections to work from.
+const H2H_Z80 = 1.2816;   // 80% two-sided
+function weeklyH2H(lg, data) {
+  if (!data?.loaded || !data.myRosterId || !weeklyHasRankings) return null;
+  const rows = data.matchupsAll;
+  if (!Array.isArray(rows) || !rows.length) return null;
+  const mine = rows.find(r => r.roster_id === data.myRosterId);
+  if (!mine || mine.matchup_id == null) return null;
+  const opp = rows.find(r => r.roster_id !== data.myRosterId && r.matchup_id === mine.matchup_id);
+  if (!opp) return null;
+
+  const rp = lg.roster_positions || ['QB','RB','RB','WR','WR','FLEX','TE','K','BN','BN','BN','BN'];
+  const seasonPool = weeklySeasonPlayers.length ? weeklySeasonPlayers : (data.csvPlayers || []);
+  const build = row => {
+    const roster = (data.rosters || []).find(r => r.roster_id === row.roster_id);
+    if (!roster) return null;
+    return computeWeeklyLineup({
+      rosterPlayers: roster.players,
+      rosterPositions: rp,
+      matchupRow: { week: data.week ?? weeklyNflWeek, starters: row.starters || roster.starters || [],
+                    startersPoints: row.starters_points || {}, playersPoints: row.players_points || {} },
+      projections: data.projections || {},
+      seasonPool,
+      matchupWeek: data.week ?? weeklyNflWeek,
+    });
+  };
+  const myL = build(mine), opL = build(opp);
+  if (!myL || !opL) return null;
+  const a = lineupScoreDist(myL), b = lineupScoreDist(opL);
+  if (!(a.mean > 0) && !(b.mean > 0)) return null;       // no projections yet
+
+  const mu = a.mean - b.mean;
+  const sd = Math.sqrt(a.sd * a.sd + b.sd * b.sd);
+  const winPct = sd > 0 ? normalCdf(mu / sd) : (mu > 0 ? 1 : mu < 0 ? 0 : 0.5);
+  const oppUser = (data.users || []).find(u => {
+    const r = (data.rosters || []).find(x => x.roster_id === opp.roster_id);
+    return r && u.user_id === r.owner_id;
+  });
+  return {
+    winPct, margin: mu, sd,
+    lo: mu - H2H_Z80 * sd, hi: mu + H2H_Z80 * sd,
+    myScore: a.mean, oppScore: b.mean,
+    remaining: myL.remaining + opL.remaining,
+    oppName: oppUser?.metadata?.team_name || oppUser?.display_name || 'Opponent',
+  };
+}
+
 function myWeeklyStanding(lg, data) {
   if (!data?.loaded) return undefined;
   if (!data.myRosterId) return null;
@@ -3301,6 +3389,33 @@ function buildStandingBlock(st) {
   if (!st) return '';
   return `<div class="sb-standing ldw-standing" title="${escHtml(standingTitle(st))}">${standingInnerHtml(st)}</div>`;
 }
+// Win-probability cell for the Start/Sit summary table.
+function buildH2HCell(lg, data) {
+  if (!data?.loaded) return `<td class="sb-h2h sb-st-na">…</td>`;
+  const h = (() => { try { return weeklyH2H(lg, data); } catch(_) { return null; } })();
+  if (!h) return `<td class="sb-h2h sb-st-na" title="No opponent or no projections for this week yet">—</td>`;
+  const pct = Math.round(h.winPct * 100);
+  const col = pct >= 60 ? '#4ade80' : pct <= 40 ? '#f87171' : '#eab308';
+  const sign = h.margin > 0 ? '+' : '';
+  const fmt  = v => `${v > 0 ? '+' : ''}${v.toFixed(0)}`;
+  const tip = [
+    `${pct}% chance to beat ${h.oppName}`,
+    `projected ${h.myScore.toFixed(1)} vs ${h.oppScore.toFixed(1)} (margin ${sign}${h.margin.toFixed(1)})`,
+    `80% of outcomes land between ${fmt(h.lo)} and ${fmt(h.hi)}`,
+    `${h.remaining} starter${h.remaining === 1 ? '' : 's'} still to play`,
+    `Model: each unplayed starter ~ Normal(projection, position CV); players assumed`,
+    `independent, so the true spread is somewhat wider. A rough guide, not a betting line.`,
+  ].join(' · ');
+  return `<td class="sb-h2h" title="${escHtml(tip)}">`
+    + `<div class="sb-st-top">`
+    +   `<span class="sb-h2h-pct" style="color:${col}">${pct}%</span>`
+    +   `<span class="sb-h2h-mar">${sign}${h.margin.toFixed(0)}</span>`
+    + `</div>`
+    + `<div class="sb-st-dist"><span class="sb-st-sub">${fmt(h.lo)} to ${fmt(h.hi)}`
+    +   `${h.remaining ? ` · ${h.remaining} left` : ' · final'}</span></div>`
+    + `</td>`;
+}
+
 // Compact pill for a league card header.
 function buildStandingChip(st) {
   if (st === undefined) return `<span class="lc-standing na">…</span>`;
@@ -4405,9 +4520,11 @@ function rebuildSummaryBar(mode) {
       const allLines     = [...otherIssues, ...waiverLine];
       issueCell = `<td class="sb-issue">${allLines.map(i => `⚠ ${i}`).join('<br>')}</td>`;
     }
+    const h2hCell = mode === 'ws' ? buildH2HCell(lg, data) : '';
     return `<tr class="sb-row" onclick="${onClick}">
       <td><span class="sb-league-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>${kd ? `<span style="margin-left:5px">${kd}</span>` : ''}<button class="sb-hide-btn" onclick="toggleSummaryLeague('${lid}',event)" title="Hide from summary">×</button></td>
       ${standingCell}
+      ${h2hCell}
       ${issueCell}
     </tr>`;
   }).join('');
@@ -4416,7 +4533,7 @@ function rebuildSummaryBar(mode) {
     ? `<div class="sb-show-all" onclick="hiddenSummaryLeagues.clear();localStorage.removeItem('dr_hidden_summary');rebuildSummaryBar('ls');rebuildSummaryBar('ws')">Show ${hiddenCount} hidden league${hiddenCount>1?'s':''}</div>`
     : '';
   bar.innerHTML = `<div class="summary-bar"><table>
-    <thead><tr><th>League</th><th>${mode === 'ls' ? 'My roster' : 'My lineup'}</th><th>Issues</th></tr></thead>
+    <thead><tr><th>League</th><th>${mode === 'ls' ? 'My roster' : 'My lineup'}</th>${mode === 'ws' ? '<th>This week\'s matchup</th>' : ''}<th>Issues</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>${showAllFooter}</div>`;
 }
@@ -5079,13 +5196,23 @@ function toggleLeagueCollapse(leagueId) {
   card.replaceWith(tmp.firstElementChild);
 }
 
+// Which NFL week the currently-loaded weekly maps belong to.
+// MUST be declared before loadWeeklyCached() below: that function assigns it on its
+// first line, and a `let` declared afterwards puts it in the temporal dead zone, so
+// the assignment threw a ReferenceError straight into the empty catch and every
+// restored map was silently dropped. That is why rankings had to be re-uploaded
+// on every visit.
+let weeklyMapsWeek = null;
+let weeklyRanksSavedAt = 0;   // when the loaded rankings were uploaded (ms, for sync)
+
 // Persist/restore from localStorage
 (function loadWeeklyCached() {
   try {
     const raw = localStorage.getItem('dr_weekly_rankings');
     if (!raw) return;
-    const { v, wk, qb, rb, wr, te, def, k, flex } = JSON.parse(raw);
+    const { v, wk, at, qb, rb, wr, te, def, k, flex } = JSON.parse(raw);
     weeklyMapsWeek = wk ?? null;
+    weeklyRanksSavedAt = at || 0;
     // v2 re-keyed the kicker map from last name to team abbreviation. Older payloads hold
     // unusable kicker keys, but every other map is still fine — drop only the kickers.
     const staleK = v !== WEEKLY_CACHE_VERSION;
@@ -5106,11 +5233,167 @@ function toggleLeagueCollapse(leagueId) {
   } catch(_) {}
 })();
 
-// Which NFL week the currently-loaded weekly maps belong to (guards cross-week merging).
-let weeklyMapsWeek = null;
+// ══ Cross-device ranking storage ══════════════════════════════════
+// localStorage is per-browser, so a file uploaded on the laptop never reaches the
+// phone. Rankings live in two dedicated tables keyed to the signed-in account:
+//   weekly_rankings (user_id, season, week)  — the start/sit file
+//   season_rankings (user_id, season)        — the season-long file
+// See supabase_rankings_migration.sql. Until that migration is run, weekly files
+// fall back to the reserved league_id they used to be parked under, and anything
+// found there is copied up to the new table on first read.
+const TBL_WEEKLY = 'weekly_rankings';
+const TBL_SEASON = 'season_rankings';
+const weeklySyncKey = (season, week) => `_weekly:${season}:${week}`;
+const _tableMissing = {};   // table name → true once we learn it isn't there yet
+
+// PostgREST reports an absent table a couple of different ways.
+function isMissingTable(err) {
+  if (!err) return false;
+  const code = String(err.code || '');
+  const msg  = String(err.message || '').toLowerCase();
+  return code === '42P01' || code === 'PGRST205'
+      || msg.includes('does not exist') || msg.includes('could not find the table');
+}
+function warnMigration(table) {
+  if (_tableMissing[table]) return;
+  _tableMissing[table] = true;
+  console.warn(`[Rankings] table "${table}" not found — run supabase_rankings_migration.sql. `
+             + `Falling back to the legacy location for now.`);
+}
+
+async function saveWeeklyRankingsRemote(csvText) {
+  if (!currentUser || !weeklyNflWeek) return;
+  const stamp = new Date(weeklyRanksSavedAt || Date.now()).toISOString();
+  if (!_tableMissing[TBL_WEEKLY]) {
+    const { error } = await sb.from(TBL_WEEKLY).upsert({
+      user_id: currentUser.id, season: weeklyNflYear, week: weeklyNflWeek,
+      csv_data: csvText, updated_at: stamp,
+    }, { onConflict: 'user_id,season,week' });
+    if (!error) { console.log(`[Rankings] weekly wk${weeklyNflWeek} saved to your account`); return; }
+    if (!isMissingTable(error)) { console.warn('[Rankings] weekly save failed:', error.message); return; }
+    warnMigration(TBL_WEEKLY);
+  }
+  const { error } = await sb.from('league_rankings').upsert({
+    user_id: currentUser.id, league_id: weeklySyncKey(weeklyNflYear, weeklyNflWeek),
+    csv_data: csvText, updated_at: stamp,
+  }, { onConflict: 'user_id,league_id' });
+  if (error) console.warn('[Rankings] weekly fallback save failed:', error.message);
+}
+
+// Pull this week's rankings from the account if they're newer than what's local.
+// Returns true if the in-memory maps were replaced.
+async function loadWeeklyRankingsRemote() {
+  if (!currentUser || !weeklyNflWeek) return false;
+  let row = null, fromLegacy = false;
+  try {
+    if (!_tableMissing[TBL_WEEKLY]) {
+      const { data, error } = await sb.from(TBL_WEEKLY)
+        .select('csv_data, updated_at')
+        .eq('user_id', currentUser.id).eq('season', weeklyNflYear).eq('week', weeklyNflWeek)
+        .maybeSingle();
+      if (error && !isMissingTable(error)) { console.warn('[Rankings] weekly load failed:', error.message); return false; }
+      if (error) warnMigration(TBL_WEEKLY); else row = data || null;
+    }
+    if (!row) {
+      // Either the table isn't there yet, or it is but this week still lives in
+      // the old reserved row. Read it, and copy it up if we can.
+      const { data } = await sb.from('league_rankings')
+        .select('csv_data, updated_at')
+        .eq('user_id', currentUser.id)
+        .eq('league_id', weeklySyncKey(weeklyNflYear, weeklyNflWeek))
+        .maybeSingle();
+      if (data?.csv_data) { row = data; fromLegacy = true; }
+    }
+    if (!row?.csv_data) return false;
+
+    const remoteAt = Date.parse(row.updated_at) || 0;
+    const localOk  = weeklyHasRankings && weeklyMapsWeek === weeklyNflWeek;
+    if (localOk && remoteAt <= weeklyRanksSavedAt) return false;   // local is current
+    return await new Promise(resolve => {
+      parseWeeklyAllCsv(row.csv_data, maps => {
+        applyWeeklyMaps(maps, remoteAt);
+        console.log(`[Rankings] weekly wk${weeklyNflWeek} restored from your account`
+                  + (fromLegacy ? ' (legacy row)' : ''));
+        // Migrate on read so the old row stops being the source of truth.
+        if (fromLegacy && !_tableMissing[TBL_WEEKLY]) saveWeeklyRankingsRemote(row.csv_data);
+        resolve(true);
+      });
+    });
+  } catch(e) { console.warn('[Rankings] weekly sync failed:', e.message); return false; }
+}
+
+// ── Season-long rankings ────────────────────────────────────────
+let seasonRanksSavedAt = (() => { try { return +(localStorage.getItem('dr_season_at') || 0); } catch(_) { return 0; } })();
+
+async function saveSeasonRankingsRemote(csvText) {
+  if (!currentUser) return;
+  if (_tableMissing[TBL_SEASON]) return;      // nothing to fall back to; stays local
+  const { error } = await sb.from(TBL_SEASON).upsert({
+    user_id: currentUser.id, season: weeklyNflYear,
+    csv_data: csvText, updated_at: new Date(seasonRanksSavedAt || Date.now()).toISOString(),
+  }, { onConflict: 'user_id,season' });
+  if (!error) { console.log('[Rankings] season list saved to your account'); return; }
+  if (isMissingTable(error)) warnMigration(TBL_SEASON);
+  else console.warn('[Rankings] season save failed:', error.message);
+}
+
+async function loadSeasonRankingsRemote() {
+  if (!currentUser || _tableMissing[TBL_SEASON]) return false;
+  try {
+    const { data, error } = await sb.from(TBL_SEASON)
+      .select('csv_data, updated_at')
+      .eq('user_id', currentUser.id).eq('season', weeklyNflYear)
+      .maybeSingle();
+    if (error) { if (isMissingTable(error)) warnMigration(TBL_SEASON);
+                 else console.warn('[Rankings] season load failed:', error.message); return false; }
+    if (!data?.csv_data) return false;
+    const remoteAt = Date.parse(data.updated_at) || 0;
+    if (weeklySeasonPlayers.length && remoteAt <= seasonRanksSavedAt) return false;
+    return await new Promise(resolve => {
+      parseCSVText(data.csv_data, players => {
+        if (!players.length) return resolve(false);
+        weeklySeasonPlayers = players;
+        seasonRanksSavedAt  = remoteAt;
+        Object.values(allLeaguesCache).forEach(e => { if (e) delete e._standing; });
+        try {
+          localStorage.setItem('dr_season_players', JSON.stringify(players.slice(0, 500)));
+          localStorage.setItem('dr_season_at', String(remoteAt));
+        } catch(_) {}
+        updateWeeklySeasonStatus();
+        console.log(`[Rankings] season list restored from your account (${players.length} players)`);
+        resolve(true);
+      }, true);
+    });
+  } catch(e) { console.warn('[Rankings] season sync failed:', e.message); return false; }
+}
+
+// Install a freshly parsed set of maps. Shared by the file upload and the sync pull
+// so both paths synthesize flex ranks and stamp the save time identically.
+function applyWeeklyMaps(maps, savedAt) {
+  if (weeklyHasRankings) {
+    weeklyPrevQbMap   = weeklyQbMap;   weeklyPrevRbMap  = weeklyRbMap;
+    weeklyPrevWrMap   = weeklyWrMap;   weeklyPrevTeMap  = weeklyTeMap;
+    weeklyPrevDefMap  = weeklyDefMap;  weeklyPrevKMap   = weeklyKMap;
+    weeklyPrevFlexMap = weeklyFlexMap;
+  }
+  weeklyQbMap   = maps.qbMap;
+  weeklyRbMap   = maps.rbMap;
+  weeklyWrMap   = maps.wrMap;
+  weeklyTeMap   = maps.teMap;
+  weeklyDefMap  = maps.defMap;
+  weeklyKMap    = maps.kMap;
+  weeklyFlexMap = synthesizeFlexRanks(maps.flexMap,
+                    { RB: maps.rbMap, WR: maps.wrMap, TE: maps.teMap });
+  weeklyMapsWeek      = weeklyNflWeek ?? weeklyMapsWeek;
+  weeklyRanksSavedAt  = savedAt || Date.now();
+  Object.values(allLeaguesCache).forEach(e => { if (e) delete e._wkStanding; });
+  weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
+  saveWeeklyCached();
+  updateWeeklyUploadStatus();
+}
 
 function saveWeeklyCached() {
-  try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ v: WEEKLY_CACHE_VERSION, wk: weeklyMapsWeek, qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap, def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap })); } catch(_) {}
+  try { localStorage.setItem('dr_weekly_rankings', JSON.stringify({ v: WEEKLY_CACHE_VERSION, wk: weeklyMapsWeek, at: weeklyRanksSavedAt, qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap, def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap })); } catch(_) {}
 }
 
 // Matchup scale: 1 = best matchup (easiest), 32 = worst (hardest)
@@ -5307,33 +5590,19 @@ function synthesizeFlexRanks(flexMap, posMaps) {
 function onWeeklyAllUpload(evt) {
   const file = evt.target.files?.[0]; evt.target.value = ''; if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => parseWeeklyAllCsv(e.target.result, async maps => {
-    // Keep kickoff/lock data fresh on every upload.
-    if (weeklyNflWeek) { try { await fetchGameKickoffs(weeklyNflWeek, weeklyNflYear); } catch(_) {} }
-    // Snapshot current maps before overwriting (enables rank-change highlighting)
-    if (weeklyHasRankings) {
-      weeklyPrevQbMap   = weeklyQbMap;   weeklyPrevRbMap  = weeklyRbMap;
-      weeklyPrevWrMap   = weeklyWrMap;   weeklyPrevTeMap  = weeklyTeMap;
-      weeklyPrevDefMap  = weeklyDefMap;  weeklyPrevKMap   = weeklyKMap;
-      weeklyPrevFlexMap = weeklyFlexMap;
-    }
-    // Rankings evolve through the week — the newest upload always wins outright.
-    // Players who already played need no carried-forward rank: they are locked from
-    // Sleeper/ESPN and rendered with their actual score instead of a stale projection.
-    weeklyQbMap   = maps.qbMap;
-    weeklyRbMap   = maps.rbMap;
-    weeklyWrMap   = maps.wrMap;
-    weeklyTeMap   = maps.teMap;
-    weeklyDefMap  = maps.defMap;
-    weeklyKMap    = maps.kMap;
-    weeklyFlexMap = synthesizeFlexRanks(maps.flexMap,
-                      { RB: maps.rbMap, WR: maps.wrMap, TE: maps.teMap });
-    weeklyMapsWeek = weeklyNflWeek ?? weeklyMapsWeek;
-    Object.values(allLeaguesCache).forEach(e => { if (e) delete e._wkStanding; });
-    weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
-    saveWeeklyCached(); updateWeeklyUploadStatus();
-    if (weeklyHasRankings) { renderWeeklySummary(); rebuildSummaryBar("ws"); }
-  });
+  reader.onload = e => {
+    const csvText = e.target.result;
+    parseWeeklyAllCsv(csvText, async maps => {
+      // Keep kickoff/lock data fresh on every upload.
+      if (weeklyNflWeek) { try { await fetchGameKickoffs(weeklyNflWeek, weeklyNflYear); } catch(_) {} }
+      // Rankings evolve through the week — the newest upload always wins outright.
+      // Players who already played need no carried-forward rank: they are locked from
+      // Sleeper/ESPN and rendered with their actual score instead.
+      applyWeeklyMaps(maps, Date.now());
+      saveWeeklyRankingsRemote(csvText);     // follow the account to other devices
+      if (weeklyHasRankings) { renderWeeklySummary(); rebuildSummaryBar("ws"); }
+    });
+  };
   reader.readAsText(file);
 }
 
@@ -5354,8 +5623,13 @@ function onWeeklySeasonUpload(evt) {
         weeklySeasonPlayers.forEach(sp => { weeklyPrevSeasonMap[normName(sp.name)] = sp.ov; });
       }
       weeklySeasonPlayers = players;
+      seasonRanksSavedAt  = Date.now();
       Object.values(allLeaguesCache).forEach(e => { if (e) delete e._standing; });
-      try { localStorage.setItem('dr_season_players', JSON.stringify(players.slice(0, 500))); } catch(_) {}
+      try {
+        localStorage.setItem('dr_season_players', JSON.stringify(players.slice(0, 500)));
+        localStorage.setItem('dr_season_at', String(seasonRanksSavedAt));
+      } catch(_) {}
+      saveSeasonRankingsRemote(e.target.result);   // follow the account to other devices
       updateWeeklySeasonStatus();
       if (weeklyHasRankings) { renderWeeklySummary(); rebuildSummaryBar("ws"); }
     }, true);
@@ -6084,6 +6358,9 @@ async function openWeeklySummary() {
   const prevWeek = weeklyNflWeek;
   // resolveNflWeek also installs this week's kickoff/lock data.
   try { await resolveNflWeek(true); } catch(_) { weeklyNflWeek = weeklyNflWeek || 1; }
+  // Rankings follow the signed-in account, so a file uploaded on another device
+  // shows up here. Awaited so the first render already has them.
+  try { await Promise.all([loadWeeklyRankingsRemote(), loadSeasonRankingsRemote()]); } catch(_) {}
   if (prevWeek != null && prevWeek !== weeklyNflWeek) {
     allLeaguesCache = {};   // last week's rosters, matchups and starters are all stale
     _ldMatchupKey   = null;
@@ -6152,6 +6429,7 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
     const projections = await fetchWeekProjections(year || season, week, scoringKey);
     let myRosterId = null;
     if (myUid) { const r = rosters.find(r => r.owner_id === myUid); if (r) myRosterId = r.roster_id; }
+    const matchupsAll = Array.isArray(matchupsRaw) ? matchupsRaw : [];
     let matchupData = null;
     if (myRosterId && Array.isArray(matchupsRaw)) {
       const myM = matchupsRaw.find(m => m.roster_id === myRosterId);
@@ -6162,7 +6440,7 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
         playersPoints:  myM.players_points  || {},
       };
     }
-    const entry = { rosters, users, projections, myRosterId, matchupData, week, loaded: true };
+    const entry = { rosters, users, projections, myRosterId, matchupData, matchupsAll, week, loaded: true };
     allLeaguesCache[lg.league_id] = entry;
     const list = document.getElementById('ws-leagues-list');
     if (list && list.children[cardIndex]) {
