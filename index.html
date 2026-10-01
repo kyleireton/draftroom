@@ -2902,7 +2902,8 @@ async function loadLeagueDetail(lg) {
                      : lg.scoring_settings?.rec === 0.5 ? 'pts_half_ppr' : 'pts_std';
 
     // Projections — non-fatal if unavailable (preseason, or early in a new week)
-    leagueProjections = await fetchWeekProjections(weeklyNflYear || season, week, scoringKey);
+    leagueProjections = adjustProjectionsForLeague(lg,
+      await fetchWeekProjections(weeklyNflYear || season, week, scoringKey));
 
     // Find which roster is mine (match owner_id to currentUser's Sleeper id via username)
     leagueMyRosterId = null;
@@ -3177,7 +3178,8 @@ function buildWeeklyPlayers(roster) {
       const pm = pos === 'RB' ? weeklyRbMap : pos === 'WR' ? weeklyWrMap : pos === 'TE' ? weeklyTeMap : null;
       if (pm) { const pe = lookupWeekly(name, norm, pm); if (pe) posRank = pe.rank; }
     }
-    return { pid, name, pos, flexRank, posRank, qbRank, defRank, kRank, projPts: null, team: sInfo?.team || '' };
+    return { pid, name, pos, flexRank, posRank, qbRank, defRank, kRank, out: playerOutThisWeek(pid),
+             projPts: null, team: sInfo?.team || '' };
   });
 }
 
@@ -3266,7 +3268,11 @@ function lineupScoreDist(lineup) {
     if (p.locked) { mean += p.liveScore || 0; return; }      // already played: known
     const proj = p.projPts || 0;
     mean += proj;
-    const sd = Math.max(MIN_PLAYER_SD, (SCORE_CV[p.pos] ?? 0.6) * proj);
+    // An explicit zero is a known zero — a player ruled out, or a position this
+    // league doesn't score. Those carry no uncertainty. A MISSING projection is
+    // different: we simply don't know, so keep the floor.
+    const sd = proj > 0 ? Math.max(MIN_PLAYER_SD, (SCORE_CV[p.pos] ?? 0.6) * proj)
+             : (p.projPts == null ? MIN_PLAYER_SD : 0);
     varSum += sd * sd;
   });
   return { mean, sd: Math.sqrt(varSum) };
@@ -3491,7 +3497,7 @@ function ldwRow(p) {
   return `<div class="ldw-row${p.locked ? ' locked' : ''}" style="border-left-color:${bg}">
     <span class="ldw-slot">${p.bench ? 'BN' : escHtml(ldwSlotLabel(p.slot || p.pos))}</span>
     ${chip}
-    <span class="ldw-pname">${escHtml(displayName(p.name))}${p.locked ? ' 🔒' : ''}</span>
+    <span class="ldw-pname"${p.out ? ' style="color:#f87171"' : ''} title="${escHtml(displayName(p.name))}${p.out ? ` · ${p.injury || 'Out'}` : ''}">${escHtml(displayName(p.name))}${p.locked ? ' 🔒' : ''}${p.out ? ' ✕' : ''}${rankProjectionMismatch(p) ? ' ⚠' : ''}</span>
     <span class="${ptsCls}" title="${tip}">${ptsStr}</span>
   </div>`;
 }
@@ -4600,7 +4606,8 @@ async function loadOneLeagueSummary(lg, myUid, cardIndex) {
     const users      = await userRes.json();
     const week       = wk.week;
 
-    const projections = await fetchWeekProjections(weeklyNflYear || season, week, scoringKey);
+    const projections = adjustProjectionsForLeague(lg,
+      await fetchWeekProjections(weeklyNflYear || season, week, scoringKey));
 
     // Load rankings from Supabase for this league
     let csvPlayers = [];
@@ -5151,6 +5158,46 @@ function teamGameStarted(abbr) {
   return st === 'in' || st === 'post';
 }
 
+// ── Is this player actually going to play? ────────────────────────────
+// A ranked player who is ruled out still carries his rank in the file, so without
+// this he would be slotted ahead of a healthy replacement and projected as if he
+// were playing. Questionable is deliberately NOT here — those players usually play.
+const OUT_INJURY_STATUS = new Set(['Out','Doubtful','IR','PUP','NA','Suspended','DNR']);
+const OUT_ROSTER_STATUS = new Set(['Inactive','Injured Reserve','Physically Unable to Perform',
+                                   'Non Football Injury','Suspended','Practice Squad']);
+function playerOutThisWeek(pid) {
+  const raw = _sleeperRawPlayers?.[pid];
+  if (!raw) return false;
+  return OUT_INJURY_STATUS.has(String(raw.injury_status || ''))
+      || OUT_ROSTER_STATUS.has(String(raw.status || ''));
+}
+
+// ── Does this league actually score the position? ──────────────────────
+// A league can keep a kicker slot but zero out every kicking stat, making the
+// position cosmetic. Sleeper's pre-computed pts_* totals don't know that, so a
+// cosmetic kicker would otherwise inflate both lineups' projections.
+const K_SCORING_KEYS = ['fgm','fgm_0_19','fgm_20_29','fgm_30_39','fgm_40_49','fgm_50p',
+                        'fgm_yds','fgm_pct','xpm','fgmiss','xpmiss'];
+function leagueScoresPosition(lg, pos) {
+  const ss = lg?.scoring_settings;
+  if (!ss || pos !== 'K') return true;                 // unknown, or not a kicker
+  return K_SCORING_KEYS.some(k => Math.abs(Number(ss[k]) || 0) > 0);
+}
+
+// Return a projections map adjusted for this league's quirks. Never mutates the
+// shared cached map — fetchWeekProjections hands the same object to every league.
+function adjustProjectionsForLeague(lg, projections) {
+  if (leagueScoresPosition(lg, 'K')) return projections;
+  const out = { ...projections };
+  let zeroed = 0;
+  Object.keys(out).forEach(pid => {
+    if (_sleeperRawPlayers?.[pid]?.position === 'K') { out[pid] = 0; zeroed++; }
+  });
+  if (zeroed) console.log(`[Projections] ${lg?.name || lg?.league_id}: kickers score nothing here, `
+                        + `zeroed ${zeroed} projection(s)`);
+  return out;
+}
+
 // Sleeper abbreviation for a player id (DEF ids are the abbreviation itself).
 function lockTeamOfPid(pid) {
   const t = sleeperByName[sleeperById[pid]]?.team || _sleeperRawPlayers?.[pid]?.team || '';
@@ -5692,6 +5739,8 @@ function assignWeeklySlots(players, rosterPositions, lockedSlotMap) {
     const cands = avail.filter(p => !used.has(p.pid) && pred(p));
     if (!cands.length) return null;
     cands.sort((a, b) => {
+      // Ruled out for the week — never preferred, however well he is ranked.
+      if (!!a.out !== !!b.out) return a.out ? 1 : -1;
       const aR = a[rankKey], bR = b[rankKey];
       if (aR != null && bR != null) return aR - bR;
       if (aR != null) return -1;
@@ -5702,7 +5751,10 @@ function assignWeeklySlots(players, rosterPositions, lockedSlotMap) {
         if (aF != null) return -1;
         if (bF != null) return 1;
       }
-      return 0;
+      // Nobody here is ranked (common for QBs in superflex — the QB list only runs
+      // ~25 deep). A real manager starts whoever is projected highest, so do that
+      // rather than falling back on roster order.
+      return (b.projPts ?? 0) - (a.projPts ?? 0);
     });
     used.add(cands[0].pid); return cands[0];
   }
@@ -5843,6 +5895,29 @@ function buildWeeklyRankChip(p) {
   return soloChip(`${p.pos}#${p.posRank}`, tip);
 }
 
+// ── Rank vs projection sanity check ───────────────────────────────
+// Your rankings and Sleeper's projections are independent opinions. When they
+// disagree sharply it usually means one of them is stale, and that's worth seeing:
+//   · well ranked but barely projected  → probably hurt, benched, or on bye
+//   · unranked but heavily projected     → the ranking file missed a real starter
+// Returns a short note, or '' when the two broadly agree.
+const SANITY_STARTABLE_RANK = 40;   // "your rankings say startable"
+const SANITY_LOW_PROJ       = 4;    // points
+const SANITY_HIGH_PROJ      = 12;
+function rankProjectionMismatch(p) {
+  if (p.locked || p.gameStarted || p.out) return '';         // already explained
+  const proj = p.projPts;
+  if (proj == null) return '';                                // nothing to compare
+  const rank = p.qbRank ?? (p.flexSynthetic ? null : p.flexRank);
+  if (rank != null && rank <= SANITY_STARTABLE_RANK && proj < SANITY_LOW_PROJ) {
+    return `Ranked #${rank} but projected only ${proj.toFixed(1)} — check he is playing`;
+  }
+  if (rank == null && proj >= SANITY_HIGH_PROJ) {
+    return `Projected ${proj.toFixed(1)} but missing from your rankings`;
+  }
+  return '';
+}
+
 // Weekly player row
 function weeklyPlayerRow(p, isUpgrade, upgradeLabel) {
   const dn = displayName(p.name);
@@ -5880,6 +5955,13 @@ function weeklyPlayerRow(p, isUpgrade, upgradeLabel) {
   const lockedNote = p.gameStarted
     ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0" title="Game already started — cannot swap in${p.liveScore != null ? ` · scored ${p.liveScore.toFixed(1)} pts` : ''}">🔒${p.liveScore != null ? ` ${p.liveScore.toFixed(1)}` : ''}</span>`
     : '';
+  const outNote = p.out
+    ? `<span style="font-size:9px;font-weight:800;color:#f87171;background:rgba(248,113,113,.15);border-radius:3px;padding:1px 4px;flex-shrink:0" title="${escHtml(p.injury || 'Out')} — projected 0 and slotted behind anyone healthy">${escHtml((p.injury || 'OUT').toUpperCase())}</span>`
+    : '';
+  const mismatch = rankProjectionMismatch(p);
+  const mismatchNote = mismatch
+    ? `<span style="font-size:9px;color:#fbbf24;flex-shrink:0" title="${escHtml(mismatch)}">⚠</span>`
+    : '';
 
   let rightMetric;
   if (p.locked) {
@@ -5902,7 +5984,7 @@ function weeklyPlayerRow(p, isUpgrade, upgradeLabel) {
     ${chip}${deltaBadge}
     <span class="ls-p-name" title="${escHtml(dn)}" style="color:${nameColor}">${escHtml(dn)}</span>
     <span class="ls-p-pos" style="color:${p.gameStarted ? '#374151' : posTextColor(p.pos)};font-weight:700">${p.pos}</span>
-    ${slotL}${oppTag}${lockedNote}
+    ${slotL}${oppTag}${outNote}${mismatchNote}${lockedNote}
     ${rightMetric}
     ${projSpan}
     ${upgBadge}
@@ -5955,7 +6037,14 @@ function computeWeeklyLineup({ rosterPlayers, rosterPositions, matchupRow, proje
       const pv = weeklyPrevFlexMap[norm] ?? weeklyPrevFlexMap[normName(name)];
       const curRank = flexRank ?? posRank; if (pv && curRank != null) rankDelta = pv.rank - curRank;
     }
-    return { pid, name, pos, flexRank, flexSynthetic, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, rankDelta, projPts: projections?.[pid] ?? null, team: sInfo?.team || '' };
+    // A player ruled out scores nothing, whatever his ranking says. Keep the rank
+    // for display so you can see WHY he was benched, but zero the projection and
+    // let the slotting push him behind anyone healthy.
+    const out = playerOutThisWeek(pid);
+    const rawProj = projections?.[pid] ?? null;
+    return { pid, name, pos, flexRank, flexSynthetic, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, rankDelta, out,
+             injury: _sleeperRawPlayers?.[pid]?.injury_status || null,
+             projPts: out ? 0 : rawProj, team: sInfo?.team || '' };
   });
 
 
@@ -6426,7 +6515,8 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
     const rosters  = await rosterRes.json();
     const users    = await userRes.json();
     const matchupsRaw = await matchupRes.json().catch(() => []);
-    const projections = await fetchWeekProjections(year || season, week, scoringKey);
+    const projections = adjustProjectionsForLeague(lg,
+      await fetchWeekProjections(year || season, week, scoringKey));
     let myRosterId = null;
     if (myUid) { const r = rosters.find(r => r.owner_id === myUid); if (r) myRosterId = r.roster_id; }
     const matchupsAll = Array.isArray(matchupsRaw) ? matchupsRaw : [];
