@@ -4370,8 +4370,15 @@ function openLeagueSummary() {
 function detectSeasonIssues(lg, data) {
   const issues = [];
   if (!data?.loaded) return null; // still loading
-  const { rosters, csvPlayers, myRosterId } = data;
-  if (!myRosterId) return [];
+  // The Start/Sit loader builds cache entries WITHOUT csvPlayers (it never fetches
+  // per-league season rankings), and this runs against whatever is in the cache. An
+  // unguarded csvPlayers.length threw a TypeError here, which killed the whole
+  // rebuildSummaryBar('ls') pass — and because toggleSummaryLeague rebuilds the season
+  // table BEFORE the weekly one, the weekly table never re-rendered and the hide
+  // button looked dead.
+  const { rosters, myRosterId } = data;
+  const csvPlayers = data.csvPlayers || [];
+  if (!myRosterId || !Array.isArray(rosters)) return [];
   const myRoster = rosters.find(r => r.roster_id === myRosterId);
   if (!myRoster) return [];
 
@@ -4584,11 +4591,19 @@ function rebuildSummaryBar(mode) {
 
   // Compute every cell's value once, so the sort and the rendering can never disagree.
   const built = visible.map(lg => {
-    const data   = allLeaguesCache[lg.league_id];
-    const issues = mode === 'ls' ? detectSeasonIssues(lg, data) : detectWeeklyIssues(lg, data);
-    const st     = mode === 'ls' ? myTierStanding(lg, data) : myWeeklyStanding(lg, data);
+    const data = allLeaguesCache[lg.league_id];
+    // Every cell is computed defensively: one league with odd data should degrade to
+    // a blank cell, never take the table down with it.
+    const guard = (what, fn, fallback) => {
+      try { return fn(); }
+      catch(e) { console.error(`[Summary] ${what} failed for ${lg.name}:`, e); return fallback; }
+    };
+    const issues = guard('issues', () => mode === 'ls' ? detectSeasonIssues(lg, data)
+                                                       : detectWeeklyIssues(lg, data), []);
+    const st     = guard('standing', () => mode === 'ls' ? myTierStanding(lg, data)
+                                                         : myWeeklyStanding(lg, data), null);
     const h2h    = mode === 'ws' && data?.loaded
-      ? (() => { try { return weeklyH2H(lg, data); } catch(_) { return null; } })() : null;
+      ? guard('matchup', () => weeklyH2H(lg, data), null) : null;
     return { lg, data, issues, st, h2h };
   });
 
@@ -5083,11 +5098,19 @@ let weeklyNflYear    = new Date().getFullYear();
 let weeklyHasRankings = false;
 let hiddenSummaryLeagues = new Set(JSON.parse(localStorage.getItem('dr_hidden_summary') || '[]'));
 function toggleSummaryLeague(lid, ev) {
-  ev.stopPropagation();
+  ev?.stopPropagation?.();
   if (hiddenSummaryLeagues.has(lid)) hiddenSummaryLeagues.delete(lid);
   else hiddenSummaryLeagues.add(lid);
-  localStorage.setItem('dr_hidden_summary', JSON.stringify([...hiddenSummaryLeagues]));
-  rebuildSummaryBar('ls'); rebuildSummaryBar('ws');
+  try { localStorage.setItem('dr_hidden_summary', JSON.stringify([...hiddenSummaryLeagues])); } catch(_) {}
+  // Rebuild both independently: a failure in one table must not stop the other from
+  // reflecting the change the user just made.
+  safeRebuildSummaryBar('ls');
+  safeRebuildSummaryBar('ws');
+}
+
+function safeRebuildSummaryBar(mode) {
+  try { rebuildSummaryBar(mode); }
+  catch(e) { console.error(`[Summary] ${mode} table failed to render:`, e); }
 }
 let weeklySeasonPlayers = []; // season-long rankings from half-ppr.csv / full-season upload
 // Previous-upload snapshots for rank-change highlighting
