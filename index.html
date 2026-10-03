@@ -1101,6 +1101,19 @@ body {
 .ws-upgrade-row { background:rgba(34,197,94,0.06) !important; }
 .lc-collapse-btn { background:#1e2530; border:1px solid #2d3748; border-radius:5px; color:#94a3b8; font-size:13px; font-weight:700; line-height:1; cursor:pointer; padding:3px 8px; flex-shrink:0; transition:background 0.12s,color 0.12s; }
 .lc-collapse-btn:hover { background:#2d3748; color:#f1f5f9; }
+.wk-step { display:inline-flex; align-items:center; border:1px solid #2d3748; border-radius:6px; overflow:hidden; }
+.wk-btn { background:#141a24; border:none; color:#94a3b8; font-size:11px; font-weight:700;
+  padding:4px 9px; cursor:pointer; transition:background .12s,color .12s; }
+.wk-btn:hover:not(:disabled) { background:#1e3a5f; color:#dbeafe; }
+.wk-btn:disabled { color:#374151; cursor:default; }
+.wk-now { background:#141a24; border:none; border-left:1px solid #2d3748; border-right:1px solid #2d3748;
+  color:#64748b; font-size:10px; font-weight:700; padding:4px 8px; cursor:pointer; }
+.wk-now:hover { color:#cbd5e1; }
+.wk-now.live { color:#4ade80; }
+.wk-badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+.wk-badge.live { background:rgba(74,222,128,.14); color:#4ade80; }
+.wk-badge.proj { background:rgba(96,165,250,.14); color:#93c5fd; }
+.wk-badge.past { background:rgba(148,163,184,.14); color:#cbd5e1; }
 .ws-info-wrap { position:relative; display:inline-flex; }
 .ws-info-btn { background:none; border:1px solid #2d3748; color:#4b5563; font-size:11px; font-weight:700; width:22px; height:22px; border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:color 0.12s,border-color 0.12s; }
 .ws-info-btn:hover { color:#94a3b8; border-color:#4b5563; }
@@ -1236,7 +1249,15 @@ body {
     <input type="file" id="ws-all-file"    accept=".csv,text/csv,text/plain" style="display:none" onchange="onWeeklyAllUpload(event)">
     <input type="file" id="ws-season-file" accept=".csv,text/csv,text/plain" style="display:none" onchange="onWeeklySeasonUpload(event)">
     <div style="flex:1;min-width:0">
-      <div class="ls-title" id="ws-title">Week 1 · Start/Sit</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <div class="ls-title" id="ws-title">Week 1 · Start/Sit</div>
+        <span class="wk-step">
+          <button class="wk-btn" id="wk-prev" onclick="stepViewWeek(-1)" title="Previous week">◀</button>
+          <button class="wk-now" id="wk-now" onclick="goToLiveWeek()" title="Back to the live week">now</button>
+          <button class="wk-btn" id="wk-next" onclick="stepViewWeek(1)" title="Next week">▶</button>
+        </span>
+        <span id="ws-mode-badge" class="wk-badge"></span>
+      </div>
       <div class="ls-meta"  id="ws-meta"></div>
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
@@ -3183,7 +3204,9 @@ function buildWeeklyPlayers(roster) {
       const pm = pos === 'RB' ? weeklyRbMap : pos === 'WR' ? weeklyWrMap : pos === 'TE' ? weeklyTeMap : null;
       if (pm) { const pe = lookupWeekly(name, norm, pm); if (pe) posRank = pe.rank; }
     }
-    return { pid, name, pos, flexRank, posRank, qbRank, defRank, kRank, out: playerOutThisWeek(pid),
+    const byeT = isTeamOnBye(toSleeperAbbr(sInfo?.team || _sleeperRawPlayers?.[pid]?.team || ''));
+    return { pid, name, pos, flexRank, posRank, qbRank, defRank, kRank,
+             out: byeT || playerOutThisWeek(pid), bye: byeT,
              projPts: null, team: sInfo?.team || '' };
   });
 }
@@ -3583,7 +3606,7 @@ function ldwColumn(t, topTotal, rosterPositions, ctx) {
 
   // Your column only: how far the lineup you currently have SET sits below this
   // optimal one. Everything else on this board is already optimal by construction.
-  const gap = t.setTotal != null ? t.projTotal - t.setTotal : 0;
+  const gap = (t.setTotal != null && isLiveWeek()) ? t.projTotal - t.setTotal : 0;
   const gapHtml = gap >= 0.5
     ? `<div style="font-size:9px;font-weight:700;color:#fbbf24;margin-top:2px" title="Your lineup as currently set projects ${t.setTotal.toFixed(1)} — ${gap.toFixed(1)} below this optimal one. Swap to claim it.">⚠ lineup as set: ${t.setTotal.toFixed(1)} (−${gap.toFixed(1)})</div>`
     : (t.setTotal != null ? `<div style="font-size:9px;font-weight:700;color:#4ade80;margin-top:2px" title="The lineup you have set matches the rank-optimal one">✓ lineup is optimal</div>` : '');
@@ -4591,7 +4614,8 @@ function rebuildSummaryBar(mode) {
 
   // Compute every cell's value once, so the sort and the rendering can never disagree.
   const built = visible.map(lg => {
-    const data = allLeaguesCache[lg.league_id];
+    const data = mode === 'ws' ? allLeaguesCache[weeklyCacheKey(lg.league_id)]
+                               : allLeaguesCache[lg.league_id];
     // Every cell is computed defensively: one league with odd data should degrade to
     // a blank cell, never take the table down with it.
     const guard = (what, fn, fallback) => {
@@ -5122,6 +5146,8 @@ const WEEKLY_CACHE_VERSION = 2;  // bump when the shape of any weekly map change
 // Persisted to localStorage so a failed ESPN call never silently disables every lock.
 let weeklyGameKickoffs        = {}; // Sleeper-canonical teamAbbr → kickoff timestamp ms
 let weeklyGameStates          = {}; // teamAbbr → 'pre' | 'in' | 'post' (as of last fetch)
+let weeklyGameOpp             = {}; // teamAbbr → the team they face that week
+
 let weeklyGameKickoffFetchedAt = 0;
 let weeklyGameKickoffsForWeek  = null; // which NFL week the cached kickoffs belong to
 const GAME_KICKOFF_TTL_MS      = 2 * 60 * 60 * 1000; // 2h
@@ -5138,7 +5164,7 @@ async function fetchWeekKickoffs(week, year) {
     try {
       const raw = JSON.parse(localStorage.getItem(KICKOFF_LS_KEY) || 'null');
       if (raw && raw.week === week && raw.year === year && raw.map && Object.keys(raw.map).length) {
-        return { map: raw.map, states: raw.states || {}, at: raw.at || 0 };
+        return { map: raw.map, states: raw.states || {}, opp: raw.opp || {}, at: raw.at || 0 };
       }
     } catch(_) {}
     return null;
@@ -5149,20 +5175,21 @@ async function fetchWeekKickoffs(week, year) {
     // ESPN's season parameter is `dates`, not `year`.
     const qs = (week && year) ? `?seasontype=2&week=${week}&dates=${year}` : '';
     const d  = await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard${qs}`).then(r => r.json());
-    const map = {}, states = {};
+    const map = {}, states = {}, opp = {};
     (d?.events || []).forEach(ev => {
       const kickoffMs = ev.date ? new Date(ev.date).getTime() : null;
       if (!kickoffMs) return;
       const st = ev.status?.type?.state || null; // 'pre' | 'in' | 'post'
-      (ev.competitions?.[0]?.competitors || []).forEach(c => {
-        const abbr = toSleeperAbbr(c.team?.abbreviation || '');
-        if (!abbr) return;
+      const sides = (ev.competitions?.[0]?.competitors || [])
+        .map(c => toSleeperAbbr(c.team?.abbreviation || '')).filter(Boolean);
+      sides.forEach((abbr, i) => {
         map[abbr] = kickoffMs;
         if (st) states[abbr] = st;
+        if (sides.length === 2) opp[abbr] = sides[1 - i];   // who they play that week
       });
     });
     if (Object.keys(map).length) {
-      const rec = { map, states, at: Date.now() };
+      const rec = { map, states, opp, at: Date.now() };
       _weekKoCache[key] = rec;
       return rec;
     }
@@ -5176,9 +5203,10 @@ async function fetchGameKickoffs(week, year) {
   if (!rec) return;
   weeklyGameKickoffs         = rec.map;
   weeklyGameStates           = rec.states;
+  weeklyGameOpp              = rec.opp || {};
   weeklyGameKickoffsForWeek  = week ?? null;
   weeklyGameKickoffFetchedAt = rec.at;
-  try { localStorage.setItem(KICKOFF_LS_KEY, JSON.stringify({ week, year, map: rec.map, states: rec.states, at: rec.at })); } catch(_) {}
+  try { localStorage.setItem(KICKOFF_LS_KEY, JSON.stringify({ week, year, map: rec.map, states: rec.states, opp: rec.opp || {}, at: rec.at })); } catch(_) {}
 }
 
 // ── Weekly projections ────────────────────────────────────────────
@@ -5226,6 +5254,24 @@ async function fetchWeekProjections(season, week, scoringKey) {
   console.warn(`[DraftRoom] no projections available for ${season} wk${week}`);
   return {};
 }
+
+// ══ Which week is on screen ═══════════════════════════════════════════════
+// weeklyNflWeek is the LIVE week (Tuesday→Monday, resolved against the real
+// schedule). weeklyViewWeek is what the user is looking at, which may be any
+// week 1-14. Weeks 15-17 are excluded on purpose: playoff matchups don't exist
+// yet, so a head-to-head for them would be invented.
+const VIEW_WEEK_MIN = 1, VIEW_WEEK_MAX = 14;
+let weeklyViewWeek = null;                    // null = follow the live week
+const viewWeek = () => weeklyViewWeek ?? weeklyNflWeek ?? 1;
+// 'past'  — played out; use real results
+// 'current' — your uploaded rankings, kickoff locks, live scoring
+// 'future' — Sleeper projections stand in for rankings
+function weekRegime(w) {
+  const v = w ?? viewWeek();
+  if (weeklyNflWeek == null) return 'current';
+  return v < weeklyNflWeek ? 'past' : v > weeklyNflWeek ? 'future' : 'current';
+}
+const isLiveWeek = () => weekRegime() === 'current';
 
 // ── Which NFL week are we actually planning for? ──────────────────────────
 // Sleeper's display_week lags: on the Tuesday after a slate it still reports the week
@@ -5281,11 +5327,24 @@ function getFantasyWeekLockFloor() {
   return d.getTime();
 }
 
+// A team with no game on the schedule that week is on bye. This is the most
+// reliable signal in the forward-looking view — no projection inference needed.
+function isTeamOnBye(abbr) {
+  if (!abbr) return false;
+  if (!Object.keys(weeklyGameKickoffs).length) return false;   // no schedule loaded
+  return !(abbr in weeklyGameKickoffs);
+}
+
 // True if this team's game has already kicked off AND belongs to the current fantasy week.
 // Every lock signal must pass the week window first — a cached 'post' from last Monday
 // is not evidence about this week.
 function teamGameStarted(abbr) {
   if (!abbr) return false;
+  // Viewing another week: the clock is irrelevant. A past week has finished, a
+  // future one has not started, regardless of what today's date says.
+  const regime = weekRegime();
+  if (regime === 'past')   return !isTeamOnBye(abbr);
+  if (regime === 'future') return false;
   if (Date.now() < getFantasyWeekLockFloor()) return false; // Tue/Wed: nothing has played yet
   const ko = weeklyGameKickoffs[abbr];
   if (ko == null) return false;                  // no game on the schedule (bye / no data)
@@ -5349,8 +5408,14 @@ function lockTeamOfPid(pid) {
 // only for the case where ESPN gave us nothing — and it is week-gated, because last
 // week's points are non-zero all Tuesday morning.
 function playerGameStarted(pid, playersPoints, matchupWeek) {
+  const regime = weekRegime();
+  if (regime === 'future') return false;          // nothing has kicked off yet
   const team = lockTeamOfPid(pid);
   if (teamGameStarted(team)) return true;
+  if (regime === 'past') {
+    const pts = playersPoints?.[pid];
+    return typeof pts === 'number' && pts !== 0;  // a stat line proves he played
+  }
   if (Date.now() < getFantasyWeekLockFloor()) return false;        // Tue/Wed: hard reset
   if (matchupWeek != null && weeklyNflWeek != null
       && matchupWeek !== weeklyNflWeek) return false;              // stat line is from another week
@@ -5372,10 +5437,11 @@ function toggleLeagueCollapse(leagueId) {
   if (!card) return;
   const lg = leagueList.find(l => l.league_id === leagueId);
   if (!lg) return;
-  const data = allLeaguesCache[leagueId] || null;
   const tmp  = document.createElement('div');
   // Detect context by which list the card lives in
   const inWeekly = !!card.closest('#ws-leagues-list');
+  const data = (inWeekly ? allLeaguesCache[weeklyCacheKey(leagueId)]
+                         : allLeaguesCache[leagueId]) || null;
   tmp.innerHTML = inWeekly
     ? buildWeeklyLeagueCardHtml(lg, data, !data?.loaded)
     : buildLeagueCardHtml(lg, data, !data?.loaded);
@@ -5411,6 +5477,7 @@ let weeklyRanksSavedAt = 0;   // when the loaded rankings were uploaded (ms, for
     weeklyFlexMap = flex || {};
     weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
     if (staleK) saveWeeklyCached();  // re-stamp so this only happens once
+    if (weeklyHasRankings) snapshotUploadedRanks();
   } catch(_) {}
   // Restore season-long rankings
   try {
@@ -5430,6 +5497,9 @@ let weeklyRanksSavedAt = 0;   // when the loaded rankings were uploaded (ms, for
 const TBL_WEEKLY = 'weekly_rankings';
 const TBL_SEASON = 'season_rankings';
 const weeklySyncKey = (season, week) => `_weekly:${season}:${week}`;
+// Weekly cache entries are per league AND per week; the season view keys by league
+// id alone, so the two never collide in allLeaguesCache.
+const weeklyCacheKey = (lid, wk) => `${lid}@w${wk ?? viewWeek()}`;
 const _tableMissing = {};   // table name → true once we learn it isn't there yet
 
 // PostgREST reports an absent table a couple of different ways.
@@ -5572,10 +5642,89 @@ function applyWeeklyMaps(maps, savedAt) {
                     { RB: maps.rbMap, WR: maps.wrMap, TE: maps.teMap });
   weeklyMapsWeek      = weeklyNflWeek ?? weeklyMapsWeek;
   weeklyRanksSavedAt  = savedAt || Date.now();
+  weeklyRanksSource   = 'upload';
+  snapshotUploadedRanks();
   Object.values(allLeaguesCache).forEach(e => { if (e) delete e._wkStanding; });
   weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
   saveWeeklyCached();
   updateWeeklyUploadStatus();
+}
+
+// ══ Ranks for a week with no ranking file ════════════════════════════════
+// Everything downstream of the rankings consumes RANKS, not points: slotting,
+// startable share, standings, the head-to-head model. So for a week you haven't
+// ranked, sort Sleeper's projections and emit ranks in that order. "Best
+// remaining rank at each slot" then means "most projected points at each slot",
+// and the entire pipeline works untouched.
+//
+// These never overwrite your uploaded file. The upload is snapshotted and
+// restored whenever you step back to the live week.
+let weeklyRanksSource = 'upload';     // 'upload' | 'projection' | 'none'
+let uploadedWeeklyRanks = null;       // your current-week file, held aside
+const _synthRankCache = {};           // "week:scoring" → maps
+
+function snapshotUploadedRanks() {
+  uploadedWeeklyRanks = { qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap,
+                          def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap,
+                          week: weeklyMapsWeek, at: weeklyRanksSavedAt };
+}
+
+function synthRanksFromProjections(projections, week) {
+  const rows = [];
+  Object.entries(projections || {}).forEach(([pid, pts]) => {
+    if (!(pts > 0)) return;                                   // bye or no projection
+    const pos  = sleeperByName[sleeperById[pid]]?.pos || _sleeperRawPlayers?.[pid]?.position;
+    if (!pos) return;
+    const norm = sleeperById[pid];
+    const team = toSleeperAbbr(sleeperByName[norm]?.team || _sleeperRawPlayers?.[pid]?.team || '');
+    rows.push({ pid, norm, pos, team, pts,
+                name: sleeperByName[norm]?.fullName || _sleeperRawPlayers?.[pid]?.full_name || norm });
+  });
+  const tierOf = r => Math.min(9, Math.ceil(r / 12));
+  const mk = (filter, keyFn) => {
+    const out = {};
+    rows.filter(filter).sort((a, b) => b.pts - a.pts).forEach((r, i) => {
+      const key = keyFn(r); if (!key || out[key]) return;
+      out[key] = { rank: i + 1, tier: tierOf(i + 1), name: r.name, pos: r.pos, team: r.team,
+                   opp: weeklyGameOpp[r.team] || '', total: null, matchup: null,
+                   projected: true, projPts: r.pts };
+    });
+    return out;
+  };
+  const isFlex = r => ['RB','WR','TE'].includes(r.pos);
+  return {
+    qbMap:   mk(r => r.pos === 'QB', r => r.norm),
+    rbMap:   mk(r => r.pos === 'RB', r => r.norm),
+    wrMap:   mk(r => r.pos === 'WR', r => r.norm),
+    teMap:   mk(r => r.pos === 'TE', r => r.norm),
+    flexMap: mk(isFlex,              r => r.norm),
+    defMap:  mk(r => r.pos === 'DEF', r => r.team || r.pid),
+    kMap:    mk(r => r.pos === 'K',   r => r.team),
+    source:  'projection', week,
+  };
+}
+
+// Put the right rank set behind the globals for the week being viewed.
+function activateRanksForWeek(week, projections, scoringKey) {
+  if (week === weeklyNflWeek) {
+    if (uploadedWeeklyRanks) {
+      ({ qb: weeklyQbMap, rb: weeklyRbMap, wr: weeklyWrMap, te: weeklyTeMap,
+         def: weeklyDefMap, k: weeklyKMap, flex: weeklyFlexMap } = uploadedWeeklyRanks);
+      weeklyMapsWeek      = uploadedWeeklyRanks.week;
+      weeklyRanksSavedAt  = uploadedWeeklyRanks.at;
+      weeklyHasRankings   = Object.keys(weeklyFlexMap).length > 0 || Object.keys(weeklyQbMap).length > 0;
+      weeklyRanksSource   = 'upload';
+      return;
+    }
+    // No file for the live week — fall through and project it like any other.
+  }
+  const key = `${week}:${scoringKey || 'pts_half_ppr'}`;
+  const m = _synthRankCache[key] || (_synthRankCache[key] = synthRanksFromProjections(projections, week));
+  weeklyQbMap = m.qbMap; weeklyRbMap = m.rbMap; weeklyWrMap = m.wrMap; weeklyTeMap = m.teMap;
+  weeklyDefMap = m.defMap; weeklyKMap = m.kMap; weeklyFlexMap = m.flexMap;
+  weeklyMapsWeek    = week;
+  weeklyHasRankings = Object.keys(weeklyFlexMap).length > 0;
+  weeklyRanksSource = weeklyHasRankings ? 'projection' : 'none';
 }
 
 function saveWeeklyCached() {
@@ -5843,6 +5992,15 @@ function updateWeeklyUploadStatus() {
       Object.keys(weeklyDefMap).length  ? `${Object.keys(weeklyDefMap).length} DEF`   : '',
       Object.keys(weeklyKMap).length    ? `${Object.keys(weeklyKMap).length} K`       : '',
     ].filter(Boolean);
+    // Only nag about a stale file on the live week — on any other week the ranks
+    // are projection-derived by design, which the mode badge already says.
+    if (!isLiveWeek()) {
+      el.textContent = weeklyRanksSource === 'projection'
+        ? `Week ${viewWeek()} ranked from Sleeper projections`
+        : `✓ ${parts.join(' · ')}`;
+      el.className = 'ls-upload-status';
+      return;
+    }
     const stale = weeklyMapsWeek != null && weeklyNflWeek != null && weeklyMapsWeek !== weeklyNflWeek;
     el.textContent = stale
       ? `⚠ Rankings are from week ${weeklyMapsWeek} — upload week ${weeklyNflWeek}`
@@ -5910,8 +6068,19 @@ function assignWeeklySlots(players, rosterPositions, lockedSlotMap) {
     else if (slot === 'K')          p = pickBest(p => p.pos === 'K',                           'kRank');
     else if (slot === 'DEF')        p = pickBest(p => p.pos === 'DEF',                         'defRank');
     else if (slot === 'FLEX')       p = pickBest(p => ['RB','WR','TE'].includes(p.pos),        'flexRank', 'posRank');
-    else if (slot === 'SUPER_FLEX') p = pickBest(p => p.pos === 'QB',                         'qbRank')
-                                    || pickBest(p => ['RB','WR','TE'].includes(p.pos),          'flexRank', 'posRank');
+    else if (slot === 'SUPER_FLEX') {
+      // A superflex is a QB slot until you genuinely run out of QBs. Only QBs with
+      // a real projection count — one on bye, ruled out, or carrying no projection
+      // is not an option, however he is ranked. A flex player fills in only when no
+      // such QB remains, even if he would project higher.
+      // Safeguard: if NOTHING on this roster has a projection (API gap), fall back
+      // to plain rank-based QB priority rather than handing the slot to a flex.
+      const anyProjection = avail.some(x => (x.projPts ?? 0) > 0);
+      p = anyProjection
+        ? pickBest(x => x.pos === 'QB' && (x.projPts ?? 0) > 0, 'qbRank')
+        : pickBest(x => x.pos === 'QB', 'qbRank');
+      if (!p) p = pickBest(x => ['RB','WR','TE'].includes(x.pos), 'flexRank', 'posRank');
+    }
     else if (slot === 'REC_FLEX')   p = pickBest(p => ['WR','TE'].includes(p.pos),             'flexRank', 'posRank');
     else if (slot === 'WRRB_FLEX')  p = pickBest(p => ['WR','RB'].includes(p.pos),             'flexRank', 'posRank');
     if (p) { p.slot = slot; p.bench = false; starters.push(p); }
@@ -6095,7 +6264,9 @@ function weeklyPlayerRow(p, isUpgrade, upgradeLabel) {
     ? `<span style="font-size:9px;color:#4b5563;flex-shrink:0" title="Game already started — cannot swap in${p.liveScore != null ? ` · scored ${p.liveScore.toFixed(1)} pts` : ''}">🔒${p.liveScore != null ? ` ${p.liveScore.toFixed(1)}` : ''}</span>`
     : '';
   const outNote = p.out
-    ? `<span style="font-size:9px;font-weight:800;color:#f87171;background:rgba(248,113,113,.15);border-radius:3px;padding:1px 4px;flex-shrink:0" title="${escHtml(p.injury || 'Out')} — projected 0 and slotted behind anyone healthy">${escHtml((p.injury || 'OUT').toUpperCase())}</span>`
+    ? (p.bye
+        ? `<span style="font-size:9px;font-weight:800;color:#93c5fd;background:rgba(147,197,253,.15);border-radius:3px;padding:1px 4px;flex-shrink:0" title="On bye this week — no game, projected 0, and slotted behind anyone playing">BYE</span>`
+        : `<span style="font-size:9px;font-weight:800;color:#f87171;background:rgba(248,113,113,.15);border-radius:3px;padding:1px 4px;flex-shrink:0" title="${escHtml(p.injury || 'Out')} — projected 0 and slotted behind anyone healthy">${escHtml((p.injury || 'OUT').toUpperCase())}</span>`)
     : '';
   const mismatch = rankProjectionMismatch(p);
   const mismatchNote = mismatch
@@ -6179,10 +6350,11 @@ function computeWeeklyLineup({ rosterPlayers, rosterPositions, matchupRow, proje
     // A player ruled out scores nothing, whatever his ranking says. Keep the rank
     // for display so you can see WHY he was benched, but zero the projection and
     // let the slotting push him behind anyone healthy.
-    const out = playerOutThisWeek(pid);
+    const bye = isTeamOnBye(toSleeperAbbr(sInfo?.team || _sleeperRawPlayers?.[pid]?.team || ''));
+    const out = bye || playerOutThisWeek(pid);
     const rawProj = projections?.[pid] ?? null;
-    return { pid, name, pos, flexRank, flexSynthetic, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, rankDelta, out,
-             injury: _sleeperRawPlayers?.[pid]?.injury_status || null,
+    return { pid, name, pos, flexRank, flexSynthetic, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, rankDelta, out, bye,
+             injury: bye ? 'BYE' : (_sleeperRawPlayers?.[pid]?.injury_status || null),
              projPts: out ? 0 : rawProj, team: sInfo?.team || '' };
   });
 
@@ -6592,16 +6764,61 @@ async function openWeeklySummary() {
   if (prevWeek != null && prevWeek !== weeklyNflWeek) {
     allLeaguesCache = {};   // last week's rosters, matchups and starters are all stale
     _ldMatchupKey   = null;
+    weeklyViewWeek  = null; // a new week pulls you back to the live one
   }
+  // Install the schedule for the week being VIEWED (resolveNflWeek installed the
+  // live one). This is what byes, opponents and locks all read.
+  try { await fetchGameKickoffs(viewWeek(), weeklyNflYear); } catch(_) {}
   const titleEl = document.getElementById('ws-title');
   const metaEl  = document.getElementById('ws-meta');
   const tabEl   = document.getElementById('ws-week-tab');
-  if (titleEl) titleEl.textContent = `Week ${weeklyNflWeek} · Start/Sit`;
+  if (titleEl) titleEl.textContent = `Week ${viewWeek()} · Start/Sit`;
   if (metaEl)  metaEl.textContent  = `${leagueList.length} league${leagueList.length !== 1 ? 's' : ''}${kickoffStatusText()}`;
-  if (tabEl)   { tabEl.textContent = `Wk ${weeklyNflWeek} Start/Sit`; tabEl.classList.add('active'); }
+  if (tabEl)   { tabEl.textContent = `Wk ${viewWeek()} Start/Sit`; tabEl.classList.add('active'); }
+  updateWeekStepperUI();
   updateWeeklyUploadStatus();
   updateWeeklySeasonStatus();
   renderWeeklySummary();
+}
+
+// ══ Week stepper ═══════════════════════════════════════════════
+function stepViewWeek(delta) {
+  const next = Math.min(VIEW_WEEK_MAX, Math.max(VIEW_WEEK_MIN, viewWeek() + delta));
+  if (next === viewWeek()) return;
+  weeklyViewWeek = next;
+  openWeeklySummary();
+}
+function goToLiveWeek() {
+  if (weeklyViewWeek == null) return;
+  weeklyViewWeek = null;
+  openWeeklySummary();
+}
+function updateWeekStepperUI() {
+  const v = viewWeek(), regime = weekRegime();
+  const prev = document.getElementById('wk-prev'), next = document.getElementById('wk-next');
+  const now  = document.getElementById('wk-now'),  badge = document.getElementById('ws-mode-badge');
+  if (prev) prev.disabled = v <= VIEW_WEEK_MIN;
+  if (next) next.disabled = v >= VIEW_WEEK_MAX;
+  if (now)  { now.textContent = weeklyViewWeek == null ? 'live' : 'now';
+              now.classList.toggle('live', weeklyViewWeek == null); }
+  if (!badge) return;
+  if (regime === 'past') {
+    badge.className = 'wk-badge past';
+    badge.textContent = 'final · actual results';
+    badge.title = 'This week has been played. Points shown are what actually happened.';
+  } else if (regime === 'future') {
+    badge.className = 'wk-badge proj';
+    badge.textContent = 'outlook · Sleeper projections';
+    badge.title = 'No ranking file for this week, so lineups are set by projected points. '
+                + 'Byes and opponents are from the real schedule; nothing is locked yet.';
+  } else {
+    badge.className = 'wk-badge live';
+    badge.textContent = weeklyRanksSource === 'upload' ? 'live · your rankings'
+                                                       : 'live · Sleeper projections';
+    badge.title = weeklyRanksSource === 'upload'
+      ? 'The current week, ranked from the file you uploaded.'
+      : 'The current week. No ranking file loaded, so projections are standing in.';
+  }
 }
 
 // Short health line for the Start/Sit header — a visible "0 games" is the fastest
@@ -6620,14 +6837,18 @@ function renderWeeklySummary() {
   const sorted = allSorted.filter(lg => !hiddenSummaryLeagues.has(lg.league_id));
   const hiddenCount = allSorted.length - sorted.length;
   list.innerHTML = sorted.map(lg => buildWeeklyLeagueCardHtml(lg, null, true)).join('');
+  // Any already-cached league for this week carries the rank set it was built with;
+  // re-activate it so a re-render without a fetch uses the right one.
+  const anyCached = sorted.map(lg => allLeaguesCache[weeklyCacheKey(lg.league_id)]).find(c => c?.loaded);
+  if (anyCached) activateRanksForWeek(anyCached.week, anyCached.projections, null);
   ensureMySleeperUserId().then(myUid => {
     ensureSleeperDb().then(() => {
       sorted.forEach((lg, i) => {
         // `loaded` alone is not enough: the season-long Leagues view writes into this
         // same cache WITHOUT matchupData, and reusing that entry silently disables every
         // start/sit lock. Require the weekly-specific payload (null = fetched, none found).
-        const cached = allLeaguesCache[lg.league_id];
-        if (cached?.loaded && cached.matchupData !== undefined && cached.week === weeklyNflWeek) {
+        const cached = allLeaguesCache[weeklyCacheKey(lg.league_id)];
+        if (cached?.loaded && cached.matchupData !== undefined && cached.week === viewWeek()) {
           const el = list.children[i];
           if (el) { const tmp = document.createElement('div'); tmp.innerHTML = buildWeeklyLeagueCardHtml(lg, cached, false); el.replaceWith(tmp.firstElementChild); }
         } else {
@@ -6643,9 +6864,11 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
   try {
     const season     = new Date().getFullYear();
     const scoringKey = lg.scoring_settings?.rec === 1 ? 'pts_ppr' : lg.scoring_settings?.rec === 0.5 ? 'pts_half_ppr' : 'pts_std';
-    // Resolve the week we're planning for (rolls over Tuesday) — this also loads
-    // the kickoff data the locks depend on.
-    const { week, year } = await resolveNflWeek();
+    // Resolve the live week (rolls over Tuesday), then load data for whichever
+    // week is on screen — they differ whenever the user steps forward or back.
+    const { year } = await resolveNflWeek();
+    const week = viewWeek();
+    await fetchGameKickoffs(week, year);          // schedule, byes and opponents
     const [rosterRes, userRes, matchupRes] = await Promise.all([
       fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/rosters`),
       fetch(`https://api.sleeper.app/v1/league/${lg.league_id}/users`),
@@ -6669,8 +6892,11 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
         playersPoints:  myM.players_points  || {},
       };
     }
-    const entry = { rosters, users, projections, myRosterId, matchupData, matchupsAll, week, loaded: true };
-    allLeaguesCache[lg.league_id] = entry;
+    // Ranks for this week: your file for the live week, projections otherwise.
+    activateRanksForWeek(week, projections, scoringKey);
+    const entry = { rosters, users, projections, myRosterId, matchupData, matchupsAll, week,
+                    regime: weekRegime(week), ranksSource: weeklyRanksSource, loaded: true };
+    allLeaguesCache[weeklyCacheKey(lg.league_id, week)] = entry;
     const list = document.getElementById('ws-leagues-list');
     if (list && list.children[cardIndex]) {
       const tmp = document.createElement('div');
