@@ -3192,7 +3192,7 @@ function buildWeeklyPlayers(roster) {
   return (roster.players || []).map(pid => {
     const norm  = sleeperById[pid];
     const sInfo = norm ? sleeperByName[norm] : null;
-    const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+    const name  = sleeperFullName(pid, norm);
     const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
     let flexRank = null, posRank = null, qbRank = null, defRank = null, kRank = null;
     if (pos === 'QB')       { const e = lookupWeekly(name, norm, weeklyQbMap); if (e) qbRank = e.rank; }
@@ -4483,7 +4483,7 @@ function detectWeeklyIssues(lg, data) {
   const players = (myRoster.players || []).map(pid => {
     const norm  = sleeperById[pid];
     const sInfo = norm ? sleeperByName[norm] : null;
-    const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+    const name  = sleeperFullName(pid, norm);
     const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
     let flexRank = null, qbRank = null, defRank = null, kRank = null, posRank = null;
     if (pos === 'QB')      { const e = lookupWeekly(name, norm, weeklyQbMap);   if (e) qbRank   = e.rank; }
@@ -4856,7 +4856,7 @@ function buildLcMyTeam(lg, data) {
   const players = (myRoster.players || []).map(pid => {
     const norm  = sleeperById[pid];
     const sInfo = norm ? sleeperByName[norm] : null;
-    const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+    const name  = sleeperFullName(pid, norm);
     let rank = null, tier = null;
     if (norm && csvPlayers.length) {
       const csvP = csvPlayers.find(p => {
@@ -5016,7 +5016,7 @@ function buildLcUpgradeAlert(lg, data) {
       if (csvP) rank = csvP.ov;
     }
     if (rank == null) {
-      const dn = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+      const dn = sleeperFullName(pid, norm);
       buckets[bucket].push(dn);
     }
   });
@@ -5669,6 +5669,22 @@ function snapshotUploadedRanks() {
                           week: weeklyMapsWeek, at: weeklyRanksSavedAt };
 }
 
+function sleeperFullName(pid, norm) {
+  // Sleeper's team-defense records carry first_name/last_name ("Seattle"/"Seahawks")
+  // but no full_name, so ensureSleeperDb's `if (!p.full_name) continue` skips them and
+  // sleeperById never gets an entry. Rebuild the name the way the ranking CSV spells it
+  // ("Seattle Seahawks") so projected weeks read the same as uploaded ones.
+  const byName = norm ? sleeperByName[norm]?.fullName : null;
+  if (byName) return byName;
+  const raw = _sleeperRawPlayers?.[pid];
+  if (raw) {
+    if (raw.full_name) return raw.full_name;
+    const built = [raw.first_name, raw.last_name].filter(Boolean).join(' ').trim();
+    if (built) return built;
+  }
+  return norm ? toTitleCase(norm) : String(pid);
+}
+
 function synthRanksFromProjections(projections, week) {
   const rows = [];
   Object.entries(projections || {}).forEach(([pid, pts]) => {
@@ -5677,8 +5693,7 @@ function synthRanksFromProjections(projections, week) {
     if (!pos) return;
     const norm = sleeperById[pid];
     const team = toSleeperAbbr(sleeperByName[norm]?.team || _sleeperRawPlayers?.[pid]?.team || '');
-    rows.push({ pid, norm, pos, team, pts,
-                name: sleeperByName[norm]?.fullName || _sleeperRawPlayers?.[pid]?.full_name || norm });
+    rows.push({ pid, norm, pos, team, pts, name: sleeperFullName(pid, norm) });
   });
   const tierOf = r => Math.min(9, Math.ceil(r / 12));
   const mk = (filter, keyFn) => {
@@ -6310,7 +6325,7 @@ function computeWeeklyLineup({ rosterPlayers, rosterPositions, matchupRow, proje
   const players = (rosterPlayers || []).map(pid => {
     const norm  = sleeperById[pid];
     const sInfo = norm ? sleeperByName[norm] : null;
-    const name  = sInfo?.fullName || (norm ? toTitleCase(norm) : pid);
+    const name  = sleeperFullName(pid, norm);
     const pos   = sInfo?.pos || _sleeperRawPlayers?.[pid]?.position || '?';
     let flexRank = null, flexSynthetic = false, posRank = null, posTier = null,
         qbRank = null, qbTier = null,
