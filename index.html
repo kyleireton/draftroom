@@ -1213,6 +1213,9 @@ body {
         <span class="wire-pill" data-pos="RB" onclick="setWireFilter('RB')">RB</span>
         <span class="wire-pill" data-pos="WR" onclick="setWireFilter('WR')">WR</span>
         <span class="wire-pill" data-pos="TE" onclick="setWireFilter('TE')">TE</span>
+        <!-- Weekly mode only, and only for leagues that start them (see syncWirePills) -->
+        <span class="wire-pill" data-pos="DEF" onclick="setWireFilter('DEF')" style="display:none">DEF</span>
+        <span class="wire-pill" data-pos="K" onclick="setWireFilter('K')" style="display:none">K</span>
       </div>
       <div class="wire-list" id="wire-list"></div>
     </div>
@@ -1592,6 +1595,8 @@ const NAME_ALIASES = {
   'nick singleton':    'nicholas singleton',
   'andres borregales': 'andy borregales',
   'andy borregales':   'andres borregales',
+  'zonovan knight':    'bam knight',
+  'bam knight':        'zonovan knight',
 };
 
 // Display name overrides: internal key (normName) → preferred display string
@@ -2868,6 +2873,17 @@ async function ensureLeagueMatchups(lg, week) {
   } catch(_) { /* leave whatever we had; the board degrades to no locks */ }
 }
 
+// The waiver-wire sidebar follows the Season / Weekly toggle: season rank in Season mode,
+// this week's rank in Weekly mode. If no weekly file is loaded there is nothing to rank
+// by, so Weekly mode falls back to the season list and says so.
+function syncWireSubtitle() {
+  const sub = document.getElementById('ld-wire-sub');
+  if (!sub) return;
+  sub.textContent = ldBoardMode === 'season' ? 'Top available by rank'
+                  : weeklyHasRankings        ? 'Top available by weekly rank'
+                  :                            'Top available by season rank';
+}
+
 // Season / Weekly board toggle
 function setLdBoardMode(mode) {
   ldBoardMode = mode === 'weekly' ? 'weekly' : 'season';
@@ -2875,8 +2891,7 @@ function setLdBoardMode(mode) {
   const sb = document.getElementById('ldw-btn-season'), wb = document.getElementById('ldw-btn-weekly');
   if (sb) sb.classList.toggle('active', ldBoardMode === 'season');
   if (wb) wb.classList.toggle('active', ldBoardMode === 'weekly');
-  const sub = document.getElementById('ld-wire-sub');
-  if (sub) sub.textContent = ldBoardMode === 'weekly' ? 'Top available by season rank' : 'Top available by rank';
+  syncWireSubtitle();
   if (ldBoardMode === 'weekly' && leagueMeta?.league_id) {
     ensureLeagueMatchups(leagueMeta, leagueWeek).then(renderLeagueDetail);
   }
@@ -3477,12 +3492,51 @@ function buildStandingBlock(st) {
   if (!st) return '';
   return `<div class="sb-standing ldw-standing" title="${escHtml(standingTitle(st))}">${standingInnerHtml(st)}</div>`;
 }
+// ── Win-probability colour ────────────────────────────────────────────────
+// A continuous scale, not buckets: 50% is yellow, and it blends to full green by 75% and to
+// full red by 25% (WINPCT_PEAK), holding those shades beyond, so 90% and 76% read the same.
+// Every percent in between gets its own shade (54% and 62% no longer look alike). The blend is
+// done in OKLab, which keeps brightness even — straight RGB goes muddy olive through the
+// yellow-green stretch and HSL goes neon.
+const _srgbToLin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const _linToSrgb = c => { c = Math.max(0, Math.min(1, c)); return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055)); };
+function _hexToOklab(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => _srgbToLin(parseInt(hex.slice(i, i + 2), 16)));
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+          1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+          0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+function _oklabToRgb([L, a, b]) {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  return `rgb(${_linToSrgb( 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)},`
+       +      `${_linToSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)},`
+       +      `${_linToSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)})`;
+}
+const WINPCT_COLORS = { lose: '#f87171', even: '#facc15', win: '#4ade80' };
+const WINPCT_LAB    = { lose: _hexToOklab(WINPCT_COLORS.lose), even: _hexToOklab(WINPCT_COLORS.even), win: _hexToOklab(WINPCT_COLORS.win) };
+const WINPCT_PEAK   = 0.25;                        // how far from 50% the ramp runs: full green at 75%, full red at 25%
+function winPctColor(p) {                          // p is a probability, 0–1
+  if (p == null || !isFinite(p)) return '#94a3b8';
+  const x = Math.max(0, Math.min(1, p));
+  if (x === 0.5) return WINPCT_COLORS.even;
+  const key = x > 0.5 ? 'win' : 'lose';
+  const t   = Math.min(1, Math.abs(x - 0.5) / WINPCT_PEAK);   // 0 at 50%, 1 at 75% / 25% and beyond
+  if (t === 1) return WINPCT_COLORS[key];          // the exact end colours, free of rounding drift
+  const from = WINPCT_LAB.even, to = WINPCT_LAB[key];
+  return _oklabToRgb(from.map((v, i) => v + (to[i] - v) * t));
+}
+
 // Win-probability cell for the Start/Sit summary table.
 function buildH2HCell(h, loaded) {
   if (!loaded) return `<td class="sb-h2h sb-st-na">…</td>`;
   if (!h) return `<td class="sb-h2h sb-st-na" title="No opponent or no projections for this week yet">—</td>`;
   const pct = Math.round(h.winPct * 100);
-  const col = pct >= 60 ? '#4ade80' : pct <= 40 ? '#f87171' : '#eab308';
+  const col = winPctColor(pct / 100);               // colour follows the number shown, so equal text = equal colour
   const sign = h.margin > 0 ? '+' : '';
   const fmt  = v => `${v > 0 ? '+' : ''}${v.toFixed(0)}`;
   const tip = [
@@ -3787,7 +3841,13 @@ function renderLeagueDetailWeekly() {
 }
 
 function renderLeagueDetail() {
-  if (ldBoardMode === 'weekly') return renderLeagueDetailWeekly();
+  if (ldBoardMode === 'weekly') {
+    renderLeagueDetailWeekly();
+    // The sidebar used to be drawn only by the Season path, so Weekly mode left it blank
+    // or stale. It now follows the toggle.
+    renderWaiverWire();
+    return;
+  }
   const bn = document.getElementById('ldw-banner');
   if (bn) { bn.style.display = 'none'; bn.innerHTML = ''; }
   const grid = document.getElementById('ld-team-grid');
@@ -4053,12 +4113,188 @@ function buildLeagueCard(p, isBench) {
 }
 
 // ── Waiver wire ──
+const WIRE_MAX = 40;   // rows listed per filter, in both Season and Weekly mode
+
 function setWireFilter(pos) {
   wirePositionFilter = pos;
   document.querySelectorAll('.wire-pill').forEach(el => {
     el.classList.toggle('active', el.dataset.pos === pos);
   });
   renderWaiverWire();
+}
+
+// Weekly mode only: DEF and K have their own lists and only matter to leagues that start
+// them. Show those pills just for such leagues; a hidden pill can never stay selected, so
+// fall back to All (this also covers switching to Season, or opening a league without the slot).
+function syncWirePills() {
+  const slots  = new Set(leagueMeta?.roster_positions || []);
+  const weekly = ldBoardMode === 'weekly' && weeklyHasRankings;
+  const show   = { DEF: weekly && slots.has('DEF'), K: weekly && slots.has('K') };
+  document.querySelectorAll('.wire-pill').forEach(el => {
+    const p = el.dataset.pos;
+    if (p === 'DEF' || p === 'K') el.style.display = show[p] ? '' : 'none';
+  });
+  if ((wirePositionFilter === 'DEF' || wirePositionFilter === 'K') && !show[wirePositionFilter]) {
+    wirePositionFilter = 'ALL';
+    document.querySelectorAll('.wire-pill').forEach(el => el.classList.toggle('active', el.dataset.pos === 'ALL'));
+  }
+}
+
+// Team abbreviations (weeklyDefMap keys) whose defense sits on a roster. Same alias handling
+// as the Start/Sit waiver section — a Sleeper id can be LAR/LA, JAX/JAC or WSH/WAS.
+function rosteredDefTeams(rosters) {
+  const alias = {};
+  Object.keys(weeklyDefMap).forEach(key => {
+    alias[key] = key;
+    Object.entries(ALT_TO_SLEEPER_ABBR).forEach(([alt, norm]) => { if (norm === key) alias[alt] = key; });
+  });
+  const taken = new Set();
+  (rosters || []).forEach(r => (r.players || []).forEach(pid => {
+    const direct = alias[pid] ?? alias[toSleeperAbbr(pid)] ?? null;
+    if (direct) taken.add(direct);
+    if (_sleeperRawPlayers?.[pid]?.position === 'DEF') {
+      const team    = _sleeperRawPlayers[pid]?.team || pid;
+      const viaTeam = alias[team] ?? alias[toSleeperAbbr(team)] ?? null;
+      if (viaTeam) taken.add(viaTeam);
+    }
+  }));
+  return taken;
+}
+
+// One sidebar card. headline / subHtml / metricHtml are already-escaped HTML.
+function weeklyWireCard(r) {
+  const el = document.createElement('div');
+  el.className = 'wire-card';
+  const base   = POS_CHIP_COLOR[r.pos] || '#374151';
+  const border = (POS_STYLE[r.pos]?.border) || '#4b5563';
+  el.style.cssText += `background:${base}40;border-left:3px solid ${border};padding-left:6px;`;
+  el.title = r.tip || '';
+  const tierChip = r.tier != null
+    ? `<span style="font-size:8px;font-weight:700;color:#fff;background:${tierHsl(r.tier)};border-radius:3px;padding:1px 3px;line-height:1.2">T${r.tier}</span>`
+    : '';
+  el.innerHTML = `
+    <div class="wire-top">
+      <div class="wire-rank">${r.headline}${tierChip}</div>
+      <div class="wire-info">
+        <div class="wire-name">${escHtml(displayName(r.name))}</div>
+        <div class="wire-pos-team">${r.subHtml}</div>
+      </div>
+      ${r.metricHtml ? `<div class="wire-proj">${r.metricHtml}</div>` : ''}
+    </div>
+    ${buildSosChips(r)}`;
+  return el;
+}
+
+// Team defenses and kickers. Both weekly lists are keyed by team abbreviation (the kicker
+// file only carries last names), so "already rostered" is a team check, not a name match.
+function weeklyTeamWireRows(pos) {
+  const rows = [];
+  if (pos === 'DEF') {
+    const taken = rosteredDefTeams(leagueRosters);
+    Object.entries(weeklyDefMap).forEach(([abbr, e]) => {
+      if (taken.has(abbr)) return;
+      const spd      = e.spread;
+      const spdColor = spd != null ? (spd < -3 ? '#22c55e' : spd > 3 ? '#ef4444' : '#eab308') : null;
+      const metric   = spd != null
+        ? `<span style="color:${spdColor}">${spd > 0 ? '+' : ''}${spd}</span>`
+        : (e.projPts != null ? `<span>${Number(e.projPts).toFixed(1)}</span>` : '');
+      rows.push({
+        pos, name: e.name, team: abbr, tier: e.tier ?? null, rank: e.rank,
+        headline: `#${e.rank}`,
+        subHtml: `DEF · ${escHtml(abbr)}${e.opp ? ` · vs ${escHtml(e.opp)}` : ''}`,
+        metricHtml: metric,
+        tip: `DEF #${e.rank}${e.tier != null ? ` · Tier ${e.tier}` : ''}${e.opp ? ` · vs ${e.opp}` : ''}${spd != null ? ` · spread ${spd > 0 ? '+' : ''}${spd}` : ''}`,
+      });
+    });
+  } else {
+    const taken = rosteredKickerTeams(leagueRosters);
+    Object.entries(weeklyKMap).forEach(([abbr, e]) => {
+      if (taken.has(abbr)) return;
+      const proj = e.projection ?? e.projPts ?? null;
+      rows.push({
+        pos, name: kickerDisplayName(e), team: abbr, tier: null, rank: e.rank,
+        headline: `#${e.rank}`,
+        subHtml: `K · ${escHtml(abbr)}${e.opp ? ` · vs ${escHtml(e.opp)}` : ''}`,
+        metricHtml: proj != null ? `<span>${Number(proj).toFixed(1)}</span>` : '',
+        tip: `K #${e.rank}${e.opp ? ` · vs ${e.opp}` : ''}${proj != null ? ` · proj ${Number(proj).toFixed(1)}` : ''}`,
+      });
+    });
+  }
+  return rows.sort((a, b) => a.rank - b.rank);
+}
+
+// Weekly mode: the same sidebar, ranked by THIS WEEK's rankings. Each pill reads the list
+// that fits it, so depth is one click away instead of sitting below the flex cut-off:
+//   QB / RB / WR / TE  that position's own weekly list (on the TE pill, TE1 is the best free TE)
+//   Flex               the merged RB/WR/TE list by flex rank (deep players carry a "~" estimate)
+//   All                QB plus every flex position, best tier first
+//   DEF / K            team defenses and kickers (only offered to leagues that start them)
+function renderWeeklyWire(listEl, isRostered) {
+  const f = wirePositionFilter;
+  let top;
+
+  if (f === 'DEF' || f === 'K') {
+    top = weeklyTeamWireRows(f).slice(0, WIRE_MAX);
+  } else {
+    const positions = f === 'ALL' ? ['QB','RB','WR','TE'] : f === 'FLEX' ? ['RB','WR','TE'] : [f];
+    const maps = { QB: weeklyQbMap, RB: weeklyRbMap, WR: weeklyWrMap, TE: weeklyTeMap };
+    const flexView = f === 'FLEX' || f === 'ALL';   // these lead with the cross-position flex rank
+    const rows = [];
+
+    positions.forEach(pos => {
+      Object.entries(maps[pos] || {}).forEach(([key, e]) => {
+        const sInfo = sleeperByName[key] || (NAME_ALIASES[key] ? sleeperByName[NAME_ALIASES[key]] : null);
+        if (isRostered(e.name, sInfo)) return;                     // already on a team in this league
+        const fe  = pos === 'QB' ? null : lookupWeekly(e.name, key, weeklyFlexMap);
+        const pid = sInfo?.id;
+        rows.push({
+          pos, name: e.name, team: e.team || sInfo?.team || '', opp: e.opp || '',
+          tier: e.tier ?? null, matchup: e.matchup ?? null,
+          posRank: e.rank, flexRank: fe?.rank ?? null, flexEst: !!fe?.synthetic,
+          projPts: e.projPts ?? (pid ? (leagueProjections[pid] ?? null) : null),
+        });
+      });
+    });
+
+    // Flex order: real flex ranks first, estimated ones continue after them, and anyone with
+    // no flex rank at all sorts last — still listed, never dropped.
+    const flexKey = r => r.flexRank ?? (100000 + r.posRank);
+    const lead    = r => r.pos === 'QB' ? r.posRank : flexKey(r);
+    rows.sort(f === 'ALL'
+      // Tier is the one cross-position number, so blend positions by tier, then by rank.
+      ? (a, b) => ((a.tier ?? 99) - (b.tier ?? 99)) || (lead(a) - lead(b))
+      : f === 'FLEX'
+        ? (a, b) => flexKey(a) - flexKey(b)
+        : (a, b) => a.posRank - b.posRank);
+
+    top = rows.slice(0, WIRE_MAX).map(r => {
+      // Headline number: the position's own rank on a position pill, the flex rank on Flex / All
+      // ("POS#n" when he sits past the end of the flex list and has none).
+      const headline = (!flexView || r.pos === 'QB') ? `#${r.posRank}`
+                     : r.flexRank != null ? `${r.flexEst ? '~' : ''}#${r.flexRank}`
+                     : `${r.pos}#${r.posRank}`;
+      const posLbl = (flexView && r.pos !== 'QB' && r.flexRank != null) ? `${r.pos}${r.posRank}` : r.pos;
+      const matchTag = r.matchup != null
+        ? ` · <span style="color:${matchupColor(r.matchup)}">${matchupLabel(r.matchup)}</span>` : '';
+      const proj = r.projPts != null ? (typeof r.projPts === 'number' ? r.projPts.toFixed(1) : r.projPts) : null;
+      return {
+        ...r, headline,
+        subHtml: `${posLbl}${r.team ? ` · ${escHtml(r.team)}` : ''}${r.opp ? ` · vs ${escHtml(r.opp)}` : ''}${matchTag}`,
+        metricHtml: proj != null ? `<span>${proj}</span>` : '',
+        tip: [
+          `${r.pos} #${r.posRank}${r.tier != null ? ` · Tier ${r.tier}` : ''}`,
+          r.pos !== 'QB' && r.flexRank != null
+            ? `Flex ${r.flexEst ? '~' : ''}#${r.flexRank}${r.flexEst ? ' (estimated — beyond the FLEX list)' : ''}` : null,
+          r.opp ? `vs ${r.opp}${r.matchup != null ? ` · matchup ${r.matchup}/32 (${matchupLabel(r.matchup)})` : ''}` : null,
+        ].filter(Boolean).join(' · '),
+      };
+    });
+  }
+
+  top.forEach(r => listEl.appendChild(weeklyWireCard(r)));
+
+  const none = f === 'K' && !Object.keys(weeklyKMap).length ? 'Re-upload weekly ranks for K' : 'No players found';
+  if (!top.length) listEl.innerHTML = `<div style="font-size:11px;color:#2d3748;padding:8px">${none}</div>`;
 }
 
 function renderWaiverWire() {
@@ -4092,6 +4328,15 @@ function renderWaiverWire() {
     return false;
   }
 
+  // Weekly mode with a ranking file loaded: rank the pool by THIS WEEK's rankings instead
+  // of the season CSV. (No weekly file → fall through to the season list below.)
+  syncWirePills();
+  syncWireSubtitle();
+  if (ldBoardMode === 'weekly' && weeklyHasRankings) {
+    renderWeeklyWire(listEl, isRostered);
+    return;
+  }
+
   // Build unrostered player list from sleeperById (all known players)
   const wire = [];
 
@@ -4122,7 +4367,7 @@ function renderWaiverWire() {
     wire.sort((a, b) => (b.projPts ?? -1) - (a.projPts ?? -1));
   }
 
-  const top = wire.slice(0, 40);
+  const top = wire.slice(0, WIRE_MAX);
   const maxRank = leagueCsvPlayers.length ? Math.max(...leagueCsvPlayers.slice(0, 24).map(p => p.ov)) : 999;
 
   top.forEach(p => {
@@ -6352,14 +6597,14 @@ function computeWeeklyLineup({ rosterPlayers, rosterPositions, matchupRow, proje
     // Rank delta vs previous upload (positive = moved up = lower number now)
     let rankDelta = null;
     if (pos === 'QB' && qbRank != null) {
-      const pv = weeklyPrevQbMap[norm] ?? weeklyPrevQbMap[normName(name)]; if (pv) rankDelta = pv.rank - qbRank;
+      const pv = lookupWeekly(name, norm, weeklyPrevQbMap); if (pv) rankDelta = pv.rank - qbRank;
     } else if (pos === 'DEF' && defRank != null) {
       const rawAbbr = sInfo?.team || _sleeperRawPlayers?.[pid]?.team || pid;
       const pv = weeklyPrevDefMap[toSleeperAbbr(rawAbbr)] ?? weeklyPrevDefMap[toSleeperAbbr(pid)]; if (pv) rankDelta = pv.rank - defRank;
     } else if (pos === 'K' && kRank != null) {
       const pv = weeklyPrevKMap[teamOfPid(pid)]; if (pv) rankDelta = pv.rank - kRank;
     } else if (['RB','WR','TE'].includes(pos)) {
-      const pv = weeklyPrevFlexMap[norm] ?? weeklyPrevFlexMap[normName(name)];
+      const pv = lookupWeekly(name, norm, weeklyPrevFlexMap);
       const curRank = flexRank ?? posRank; if (pv && curRank != null) rankDelta = pv.rank - curRank;
     }
     // A player ruled out scores nothing, whatever his ranking says. Keep the rank
@@ -6581,7 +6826,10 @@ function buildWeeklyWaiverSection(data, lg) {
   });
 
   (rosters || []).forEach(r => (r.players || []).forEach(pid => {
-    const n = sleeperById[pid]; if (n) rosteredNorms.add(n);
+    // Register nickname spellings too (Kenny/Kenneth, Bam/Zonovan): the weekly rank files
+    // key players by the name the CSV uses, which isn't always Sleeper's spelling.
+    const n = sleeperById[pid];
+    if (n) { rosteredNorms.add(n); const al = NAME_ALIASES[n]; if (al) rosteredNorms.add(al); }
     // Match DEF pid against weeklyDefMap using all known alias forms
     const mapKey = defAlias[pid] ?? defAlias[toSleeperAbbr(pid)] ?? null;
     if (mapKey) rosteredDefAbbrs.add(mapKey);
@@ -6621,10 +6869,12 @@ function buildWeeklyWaiverSection(data, lg) {
     }
     return worst;
   };
+  // lookupWeekly (not a bare map[norm]) so a player the CSV spells differently still counts
+  // as ranked — otherwise he reads as "unranked" and every available player looks like an upgrade.
   const qbBar   = myWorst(pid => posOfPid(pid) === 'QB',
-                          pid => weeklyQbMap[sleeperById[pid]]?.rank ?? null);
+                          pid => lookupWeekly('', sleeperById[pid], weeklyQbMap)?.rank ?? null);
   const flexBar = myWorst(pid => ['RB','WR','TE'].includes(posOfPid(pid)),
-                          pid => weeklyFlexMap[sleeperById[pid]]?.rank ?? null);
+                          pid => lookupWeekly('', sleeperById[pid], weeklyFlexMap)?.rank ?? null);
   const defBar  = myWorst(pid => posOfPid(pid) === 'DEF',
                           pid => weeklyDefMap[defAlias[pid] ?? defAlias[toSleeperAbbr(pid)]]?.rank ?? null);
   const kBar    = myWorst(pid => posOfPid(pid) === 'K',
