@@ -5601,10 +5601,10 @@ function teamGameStarted(abbr) {
   return st === 'in' || st === 'post';
 }
 
-// ── Is this player actually going to play? ────────────────────────────
-// A ranked player who is ruled out still carries his rank in the file, so without
-// this he would be slotted ahead of a healthy replacement and projected as if he
-// were playing. Questionable is deliberately NOT here — those players usually play.
+// ── Is this player flagged as out? ────────────────────────────
+// This is a FLAG — it drives the red IR / OUT chip and the ✕ on a player. It does not
+// by itself keep him out of a lineup: see playerSidelined() below. Questionable is
+// deliberately NOT here — those players usually play.
 const OUT_INJURY_STATUS = new Set(['Out','Doubtful','IR','PUP','NA','Suspended','DNR']);
 const OUT_ROSTER_STATUS = new Set(['Inactive','Injured Reserve','Physically Unable to Perform',
                                    'Non Football Injury','Suspended','Practice Squad']);
@@ -5613,6 +5613,20 @@ function playerOutThisWeek(pid) {
   if (!raw) return false;
   return OUT_INJURY_STATUS.has(String(raw.injury_status || ''))
       || OUT_ROSTER_STATUS.has(String(raw.status || ''));
+}
+
+// Does a player hold ANY weekly rank (QB / flex / positional / K / DEF)?
+function hasWeeklyRank(p) {
+  return p.flexRank != null || p.posRank != null || p.qbRank != null
+      || p.defRank != null  || p.kRank != null;
+}
+
+// Kept out of the lineup for status reasons: on a bye (no game, no points), or flagged out
+// with no weekly rank to say otherwise. A flagged player WHO IS RANKED is slotted by that
+// rank and keeps his projection — your rankings already bake in whether he is elevated
+// from IR by gametime, so the flag stays on screen but no longer overrides them.
+function playerSidelined(p) {
+  return !!p.bye || (!!p.out && !hasWeeklyRank(p));
 }
 
 // ── Does this league actually score the position? ──────────────────────
@@ -6296,8 +6310,10 @@ function assignWeeklySlots(players, rosterPositions, lockedSlotMap) {
     const cands = avail.filter(p => !used.has(p.pid) && pred(p));
     if (!cands.length) return null;
     cands.sort((a, b) => {
-      // Ruled out for the week — never preferred, however well he is ranked.
-      if (!!a.out !== !!b.out) return a.out ? 1 : -1;
+      // Kept out for the week (bye, or flagged out with no weekly rank) — never preferred.
+      // A flagged player who IS ranked competes on rank like anyone else.
+      const aSide = playerSidelined(a), bSide = playerSidelined(b);
+      if (aSide !== bSide) return aSide ? 1 : -1;
       const aR = a[rankKey], bR = b[rankKey];
       if (aR != null && bR != null) return aR - bR;
       if (aR != null) return -1;
@@ -6330,14 +6346,15 @@ function assignWeeklySlots(players, rosterPositions, lockedSlotMap) {
     else if (slot === 'FLEX')       p = pickBest(p => ['RB','WR','TE'].includes(p.pos),        'flexRank', 'posRank');
     else if (slot === 'SUPER_FLEX') {
       // A superflex is a QB slot until you genuinely run out of QBs. Only QBs with
-      // a real projection count — one on bye, ruled out, or carrying no projection
-      // is not an option, however he is ranked. A flex player fills in only when no
+      // a real projection count — one on bye, or carrying no projection, is not an
+      // option, however he is ranked. (A QB flagged out but holding a weekly rank
+      // counts too: his rank says he plays.) A flex player fills in only when no
       // such QB remains, even if he would project higher.
       // Safeguard: if NOTHING on this roster has a projection (API gap), fall back
       // to plain rank-based QB priority rather than handing the slot to a flex.
       const anyProjection = avail.some(x => (x.projPts ?? 0) > 0);
       p = anyProjection
-        ? pickBest(x => x.pos === 'QB' && (x.projPts ?? 0) > 0, 'qbRank')
+        ? pickBest(x => x.pos === 'QB' && ((x.projPts ?? 0) > 0 || (x.out && !playerSidelined(x))), 'qbRank')
         : pickBest(x => x.pos === 'QB', 'qbRank');
       if (!p) p = pickBest(x => ['RB','WR','TE'].includes(x.pos), 'flexRank', 'posRank');
     }
@@ -6526,7 +6543,7 @@ function weeklyPlayerRow(p, isUpgrade, upgradeLabel) {
   const outNote = p.out
     ? (p.bye
         ? `<span style="font-size:9px;font-weight:800;color:#93c5fd;background:rgba(147,197,253,.15);border-radius:3px;padding:1px 4px;flex-shrink:0" title="On bye this week — no game, projected 0, and slotted behind anyone playing">BYE</span>`
-        : `<span style="font-size:9px;font-weight:800;color:#f87171;background:rgba(248,113,113,.15);border-radius:3px;padding:1px 4px;flex-shrink:0" title="${escHtml(p.injury || 'Out')} — projected 0 and slotted behind anyone healthy">${escHtml((p.injury || 'OUT').toUpperCase())}</span>`)
+        : `<span style="font-size:9px;font-weight:800;color:#f87171;background:rgba(248,113,113,.15);border-radius:3px;padding:1px 4px;flex-shrink:0" title="${escHtml(p.injury || 'Out')} — ${playerSidelined(p) ? 'no weekly rank, so projected 0 and slotted behind anyone healthy' : 'slotted by his weekly rank; make sure he is active by kickoff'}">${escHtml((p.injury || 'OUT').toUpperCase())}</span>`)
     : '';
   const mismatch = rankProjectionMismatch(p);
   const mismatchNote = mismatch
@@ -6607,15 +6624,17 @@ function computeWeeklyLineup({ rosterPlayers, rosterPositions, matchupRow, proje
       const pv = lookupWeekly(name, norm, weeklyPrevFlexMap);
       const curRank = flexRank ?? posRank; if (pv && curRank != null) rankDelta = pv.rank - curRank;
     }
-    // A player ruled out scores nothing, whatever his ranking says. Keep the rank
-    // for display so you can see WHY he was benched, but zero the projection and
-    // let the slotting push him behind anyone healthy.
+    // `out` is the FLAG (red IR / OUT / BYE chip). Whether he is actually kept out of the
+    // lineup is playerSidelined(): a bye, or flagged out with no weekly rank. A flagged
+    // player who IS ranked is slotted by that rank and keeps his projection — your
+    // rankings already bake in whether he is elevated from IR by gametime.
     const bye = isTeamOnBye(toSleeperAbbr(sInfo?.team || _sleeperRawPlayers?.[pid]?.team || ''));
     const out = bye || playerOutThisWeek(pid);
+    const sidelined = playerSidelined({ bye, out, flexRank, posRank, qbRank, defRank, kRank });
     const rawProj = projections?.[pid] ?? null;
     return { pid, name, pos, flexRank, flexSynthetic, posRank, posTier, qbRank, qbTier, defRank, defTier, defSpread, kRank, kProjection, opp, total, matchup, rankDelta, out, bye,
              injury: bye ? 'BYE' : (_sleeperRawPlayers?.[pid]?.injury_status || null),
-             projPts: out ? 0 : rawProj, team: sInfo?.team || '' };
+             projPts: sidelined ? 0 : rawProj, team: sInfo?.team || '' };
   });
 
 
