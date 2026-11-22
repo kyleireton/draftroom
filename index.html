@@ -999,7 +999,12 @@ body {
 .lc-standing.na { color:#374151; }
 .sb-issue { color:#fbbf24; }
 .sb-loading { color:#374151; font-style:italic; }
-.po-cell { min-width:210px; }
+.po-cell { min-width:240px; }
+.po-boxes { display:flex; gap:4px; flex-wrap:wrap; }
+.po-box { display:inline-flex; flex-direction:column; align-items:center; justify-content:center; min-width:46px; padding:3px 6px; border:1px solid; border-radius:6px; line-height:1.15; cursor:help; }
+.po-box b { font-size:12px; font-weight:700; }
+.po-box i { font-size:8.5px; font-style:normal; opacity:.8; white-space:nowrap; }
+.po-box.none { background:#111827; border-color:#1e2530; color:#4b5563; }
 .po-chip { font-size:11px; font-weight:700; border:1px solid; border-radius:10px; padding:2px 9px; cursor:pointer; white-space:nowrap; font-family:inherit; }
 .po-chip:hover { filter:brightness(1.25); }
 .po-sub { font-size:10px; color:#6b7280; margin-top:3px; white-space:nowrap; }
@@ -4144,10 +4149,15 @@ function syncWirePills() {
   document.querySelectorAll('.wire-pill').forEach(el => {
     const p = el.dataset.pos;
     if (p === 'DEF' || p === 'K') el.style.display = show[p] ? '' : 'none';
+    if (p === 'ALL') el.style.display = weekly ? 'none' : '';   // weekly: no blended list, Flex leads
   });
+  if (weekly && wirePositionFilter === 'ALL') {
+    wirePositionFilter = 'FLEX';
+    document.querySelectorAll('.wire-pill').forEach(el => el.classList.toggle('active', el.dataset.pos === 'FLEX'));
+  }
   if ((wirePositionFilter === 'DEF' || wirePositionFilter === 'K') && !show[wirePositionFilter]) {
-    wirePositionFilter = 'ALL';
-    document.querySelectorAll('.wire-pill').forEach(el => el.classList.toggle('active', el.dataset.pos === 'ALL'));
+    wirePositionFilter = weekly ? 'FLEX' : 'ALL';
+    document.querySelectorAll('.wire-pill').forEach(el => el.classList.toggle('active', el.dataset.pos === wirePositionFilter));
   }
 }
 
@@ -4889,18 +4899,31 @@ function outlookTier(prob) {
   return                   { key: 'rebuild',   label: 'Rebuilding',  color: '#94a3b8' };
 }
 
-function outlookBestLineup(pids, rosterPositions, proj, liveWeek) {
+function outlookBestLineup(pids, rosterPositions, proj, liveWeek, opts = {}) {
+  const { excl, playing, ref } = opts;       // excl: IR/taxi slots · playing: NFL teams with a game · ref: map for naming
   const KNOWN = new Set(['QB','RB','WR','TE','K','DEF']);
-  const BAD   = new Set(['IR','PUP','SUS','SUSPENDED','NA']);
-  const cands = [];
+  const BAD   = new Set(['IR','PUP','SUS','SUSPENDED','NA','COV']);
+  const cands = [], byeOut = [], irOut = [];
   (pids || []).forEach(pid => {
     const raw = _sleeperRawPlayers?.[pid];
     const pos = raw?.position;
     if (!KNOWN.has(pos)) return;
     const inj = String(raw?.injury_status || '').toUpperCase();
-    if (BAD.has(inj) || (liveWeek && inj === 'OUT')) return;
+    const label = () => sleeperFullName(pid, sleeperById[pid]) || pid;
+    // IR: in a reserve/taxi slot, or flagged IR/PUP/etc. — cannot be started.
+    if ((excl && excl.has(pid)) || BAD.has(inj)) {
+      if (pos !== 'K' && pos !== 'DEF' && (ref?.[pid] ?? proj[pid] ?? 0) >= 6) irOut.push(label());
+      return;
+    }
+    if (liveWeek && inj === 'OUT') return;
+    // Bye: this player's NFL team has no game that week.
+    if (playing && pos !== 'DEF') {
+      const team = lockTeamOfPid(pid);
+      if (team && !playing.has(team)) { if ((ref?.[pid] ?? 0) >= 6) byeOut.push(label()); return; }
+    }
+    if (playing && pos === 'DEF' && !playing.has(lockTeamOfPid(pid))) return;
     const v = proj[pid];
-    if (v == null) return;                         // bye week or no projection
+    if (v == null) return;                         // no projection
     cands.push({ pid, pos, proj: v });
   });
   cands.sort((a, b) => b.proj - a.proj);
@@ -4913,6 +4936,7 @@ function outlookBestLineup(pids, rosterPositions, proj, liveWeek) {
   slots.filter(x => KNOWN.has(x)).forEach(x => take([x]));
   const FLEX = { WRRB_FLEX: ['RB','WR'], REC_FLEX: ['WR','TE'], FLEX: ['RB','WR','TE'], SUPER_FLEX: ['QB','RB','WR','TE'] };
   ['WRRB_FLEX','REC_FLEX','FLEX','SUPER_FLEX'].forEach(f => slots.filter(x => x === f).forEach(() => take(FLEX[f])));
+  out.byeOut = byeOut; out.irOut = irOut;
   return out;
 }
 
@@ -4958,7 +4982,7 @@ async function computeOutlook(lg) {
   await ensureSleeperDb();
   const myUid = await ensureMySleeperUserId();
   const lid = lg.league_id, ss = lg.settings || {};
-  if (ss.best_ball === 1) return { skip: 'Best ball — no lineups to set' };
+  const bestBall = ss.best_ball === 1;   // Sleeper auto-starts the optimal lineup: exactly what outlookBestLineup models
   const [rosters, users] = await Promise.all([
     fetch(`https://api.sleeper.app/v1/league/${lid}/rosters`).then(r => r.json()),
     fetch(`https://api.sleeper.app/v1/league/${lid}/users`).then(r => r.json()).catch(() => []),
@@ -4981,29 +5005,39 @@ async function computeOutlook(lg) {
   ids.forEach(id => { const c = rec(rosters.find(r => r.roster_id === id));
                       total[id] = { curW: c.w + 0.5 * c.t, curL: c.l + 0.5 * c.t, pf: c.pf, likely: 0, exp: 0, games: 0 }; });
   const weeks = [], simGames = [];         // simGames: [aId, bId|null, pA]
-  let firstMap = null;
+  let lastKnown = {};                      // newest projection seen per player, for weeks not yet published
+  try {                                    // seed from the week before, so players on bye in the first week still have a value
+    lastKnown = adjustProjectionsForLeague(lg, await fetchWeekProjections(season, startWk - 1, scoringKey, lg)) || {};
+  } catch(_) {}
 
   for (let w = startWk; w <= OUTLOOK_END_WEEK; w++) {
     const rows = await outlookMatchups(lid, w);
     let proj = adjustProjectionsForLeague(lg, await fetchWeekProjections(season, w, scoringKey, lg));
     let est = false;
-    if (Object.keys(proj || {}).length < 100) { proj = firstMap || {}; est = true; }
-    else if (!firstMap) firstMap = proj;
+    if (Object.keys(proj || {}).length < 100) { proj = lastKnown; est = true; }
+    else lastKnown = { ...lastKnown, ...proj };
     if (!Object.keys(proj).length) continue;
+    // NFL schedule for that week: teams without a game are on bye.
+    let sched = null;
+    try { sched = await fetchWeekKickoffs(w, season); } catch(_) {}
+    const playing = sched?.map && Object.keys(sched.map).length ? new Set(Object.keys(sched.map)) : null;
 
     const byId = Object.fromEntries(rows.map(r => [r.roster_id, r]));
     const dist = {};
+    let myBye = [], myIr = [];
     rosters.forEach(r => {
       const row = byId[r.roster_id];
-      const live = (w === liveWk && row) ? outlookLiveStarters(row, proj, w) : null;
-      const st = live || outlookBestLineup(r.players, rp, proj, w === startWk);
+      const live = (w === liveWk && row && !bestBall) ? outlookLiveStarters(row, proj, w) : null;
+      const st = live || outlookBestLineup(r.players, rp, proj, w === startWk,
+        { excl: new Set([...(r.reserve || []), ...(r.taxi || [])]), playing, ref: lastKnown });
       dist[r.roster_id] = outlookDist(st, w);
+      if (r.roster_id === mine.roster_id) { myBye = st.byeOut || []; myIr = st.irOut || []; }
     });
     const means = ids.map(id => dist[id].mean).sort((a, b) => a - b);
     const medMean = means.length % 2 ? means[(means.length - 1) / 2] : (means[means.length / 2 - 1] + means[means.length / 2]) / 2;
     const avgSd = ids.reduce((a, id) => a + dist[id].sd, 0) / (ids.length || 1);
 
-    const info = { w, est, opp: null, pWin: null, pMed: null, myMean: dist[mine.roster_id].mean };
+    const info = { w, est, opp: null, pWin: null, pMed: null, myMean: dist[mine.roster_id].mean, oppMean: null, byeKnown: !!playing, byeOut: myBye, irOut: myIr };
     const done = new Set();
     rows.forEach(r => {
       if (r.matchup_id == null || done.has(r.roster_id)) return;
@@ -5023,6 +5057,7 @@ async function computeOutlook(lg) {
         const u = (users || []).find(x => x.user_id === oppRoster?.owner_id);
         info.opp = u?.metadata?.team_name || u?.display_name || `Team ${oppId}`;
         info.pWin = r.roster_id === mine.roster_id ? pA : 1 - pA;
+        info.oppMean = dist[oppId].mean;
       }
     });
     if (median) {
@@ -5062,7 +5097,7 @@ async function computeOutlook(lg) {
   const me = total[mine.roster_id];
   const gamesLeft = me.games;
   return {
-    at: Date.now(), startWk, median, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(prob),
+    at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(prob),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
     projW: me.curW + me.likely, projL: me.curL + (gamesLeft - me.likely),
     seed, weeks, anyEst: weeks.some(x => x.est), noGames: !weeks.length,
@@ -5090,36 +5125,42 @@ function toggleOutlook(lid, ev) {
 function ordinalSeed(n) { return '#' + n; }
 const fmtRec = (w, l) => `${Number.isInteger(w) ? w : w.toFixed(1)}-${Number.isInteger(l) ? l : l.toFixed(1)}`;
 
+// Win probability → dark red … amber … dark green. Below 20% is full red, above 80% full green.
+function winProbHue(p) { return Math.round(120 * Math.min(1, Math.max(0, (p - 0.2) / 0.6))); }
+function winProbBox(p, top, sub, tip) {
+  if (p == null) return `<span class="po-box none" title="${escHtml(tip || '')}"><b>—</b><i>${sub}</i></span>`;
+  const h = winProbHue(p);
+  return `<span class="po-box" style="background:hsl(${h},55%,22%);border-color:hsl(${h},60%,36%);color:hsl(${h},75%,82%)" title="${escHtml(tip || '')}">`
+       + `<b>${top}</b><i>${sub}</i></span>`;
+}
+
 function buildOutlookCell(lg) {
   const o = _outlookCache[lg.league_id];
   if (!o) return `<td class="sb-loading">Projecting…</td>`;
   if (o.skip) return `<td class="sb-loading" title="${escHtml(o.skip)}">—</td>`;
-  const pct = Math.round(o.prob * 100);
-  const open = outlookExpanded.has(lg.league_id);
-  const sub = o.noGames
-    ? `final record ${fmtRec(o.cur.w, o.cur.l)} · seed ${ordinalSeed(o.seed)}/${o.nTeams}`
-    : `proj ${fmtRec(o.projW, o.projL)} · likely W ${o.likely}/${o.gamesLeft} · exp ${o.exp.toFixed(1)} · seed ~${ordinalSeed(o.seed)}/${o.nTeams}`;
-  return `<td class="po-cell">
-    <button class="po-chip" style="color:${o.tier.color};border-color:${o.tier.color}66;background:${o.tier.color}1a"
-      onclick="toggleOutlook('${lg.league_id}',event)" title="Click for week-by-week">${o.tier.label} · ${pct}% ${open ? '▾' : '▸'}</button>
-    <div class="po-sub">${sub}${o.anyEst ? ' <span title="Later weeks use this week\'s projections">·est</span>' : ''}</div>
-  </td>`;
+  const pct = o.prob >= 0.995 ? '99%+' : o.prob < 0.005 ? '<1%' : Math.round(o.prob * 100) + '%';
+  const boxes = o.weeks.map(x => {
+    const lines = [];
+    lines.push(x.opp ? `Week ${x.w}: ${Math.round((x.pWin ?? 0) * 100)}% to beat ${x.opp}` : `Week ${x.w}: no opponent`);
+    if (x.oppMean != null) lines.push(`Projected ${x.myMean.toFixed(0)} to ${x.oppMean.toFixed(0)}`);
+    if (o.median && x.pMed != null) lines.push(`${Math.round(x.pMed * 100)}% to beat the league median`);
+    if (x.byeOut?.length) lines.push('On bye: ' + x.byeOut.slice(0, 6).join(', '));
+    if (x.irOut?.length)  lines.push('On IR (not counted): ' + x.irOut.slice(0, 6).join(', '));
+    if (!x.byeKnown) lines.push('NFL schedule unavailable, byes not applied');
+    if (x.est) lines.push('Projections for this week are not published yet: latest known values used');
+    const mark = (x.est || !x.byeKnown) ? '*' : '';
+    const top = x.pWin != null ? Math.round(x.pWin * 100) + '%' : '—';
+    const sub = `Wk${x.w}${mark}` + (o.median && x.pMed != null ? ` · med ${Math.round(x.pMed * 100)}%` : '');
+    return winProbBox(x.pWin, top, sub, lines.join('\n'));
+  }).join('');
+  const rec = o.noGames
+    ? `final ${fmtRec(o.cur.w, o.cur.l)}`
+    : `${fmtRec(o.cur.w, o.cur.l)} → proj ${fmtRec(o.projW, o.projL)} · likely W ${o.likely}/${o.gamesLeft} · exp ${o.exp.toFixed(1)}`;
+  return `<td class="po-cell"><div class="po-boxes">${boxes || '<span class="sb-loading">No games left through week 14</span>'}</div>
+    <div class="po-sub">${rec} · playoffs ${pct} (top ${o.nPlayoff}/${o.nTeams}) · seed ~#${o.seed}</div></td>`;
 }
 
-function buildOutlookDetailRow(lg, cols) {
-  const o = _outlookCache[lg.league_id];
-  if (!o || o.skip || !outlookExpanded.has(lg.league_id)) return '';
-  const chips = o.weeks.map(x => {
-    const bits = [];
-    if (x.pWin != null) bits.push(`${x.pWin >= 0.5 ? 'W' : 'L'} ${Math.round(x.pWin * 100)}% vs ${escHtml(x.opp || '?')}`);
-    else bits.push('bye');
-    if (o.median && x.pMed != null) bits.push(`${x.pMed >= 0.5 ? 'W' : 'L'} ${Math.round(x.pMed * 100)}% vs median`);
-    const good = x.pWin != null && x.pWin >= 0.5;
-    return `<span class="po-wk${good ? ' good' : ''}"><b>Wk ${x.w}${x.est ? '*' : ''}</b> ${bits.join(' · ')} · proj ${x.myMean.toFixed(0)}</span>`;
-  }).join('');
-  const foot = `Tier from simulated playoff odds (top ${o.nPlayoff} of ${o.nTeams}). ${o.median ? 'Median league: each week counts two games. ' : ''}${o.anyEst ? '* = later-week projections not yet published; this week\'s used. ' : ''}`;
-  return `<tr class="po-detail"><td colspan="${cols}"><div class="po-strip">${chips || 'No games left through week 14.'}</div><div class="po-foot">${foot}</div></td></tr>`;
-}
+function buildOutlookDetailRow() { return ''; }
 
 function rebuildSummaryBar(mode) {
   const barId = mode === 'ls' ? 'ls-summary-bar' : 'ws-summary-bar';
@@ -5216,7 +5257,7 @@ function rebuildSummaryBar(mode) {
            mode === 'ls' ? 'Sort by roster rank — best first' : 'Sort by lineup rank — best first')}
       ${mode === 'ws' ? th('h2h', "This week's matchup",
            'Sort by win probability — worst matchups first, so the ones worth working on come to the top') : ''}
-      ${th('outlook', 'Playoff outlook', 'Odds of making the playoffs from simulated finishes, plus projected record and seed through week 14. Sort by odds — best first')}
+      ${th('outlook', 'Rest of season', 'Win probability for each remaining week from both teams\' best projected lineups (byes and IR excluded). Hover a box for detail. Sort by playoff odds — best first')}
       ${th('issues', 'Issues', 'Sort by number of flagged issues — most first')}
     </tr></thead>
     <tbody>${rows}</tbody>
