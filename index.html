@@ -5200,6 +5200,14 @@ function buildOutlookCell(lg) {
 
 function buildOutlookDetailRow() { return ''; }
 
+// Seed sort: same projected seed -> alphabetical (the table's name tiebreak). Top-2 seeds form one
+// group; inside it, leagues that actually carry a bye come first and no-bye leagues drop to the
+// bottom, so the gold-ring run is unbroken. Every other seed sorts by itself.
+function outlookSortKey(o) {
+  if (o.seed <= 2) return (o.byes > 0 && o.seed <= o.byes ? 0 : 50) + o.seed;
+  return o.seed * 100;
+}
+
 function rebuildSummaryBar(mode) {
   const barId = mode === 'ls' ? 'ls-summary-bar' : 'ws-summary-bar';
   const bar = document.getElementById(barId);
@@ -5236,7 +5244,7 @@ function rebuildSummaryBar(mode) {
                      : sortKey === 'standing' ? (r.st?.rank ?? null)
                      : sortKey === 'h2h'      ? (r.h2h?.winPct ?? null)
                      : sortKey === 'odds'     ? (r.po && !r.po.skip ? r.po.prob : null)
-                     : sortKey === 'outlook'  ? (r.po && !r.po.skip ? r.po.seed + (1 - r.po.prob) : null)
+                     : sortKey === 'outlook'  ? (r.po && !r.po.skip ? outlookSortKey(r.po) : null)
                      : sortKey === 'issues'   ? (r.issues ? r.issues.length : null)
                      : null;
   built.sort((a, b) => {
