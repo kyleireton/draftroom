@@ -4894,11 +4894,23 @@ const OUTLOOK_END_WEEK = 14, OUTLOOK_SIMS = 3000, OUTLOOK_TTL_MS = 20 * 60 * 100
 const _outlookCache = {}, _outlookPending = {}, _outlookMatchCache = {};
 let outlookExpanded = new Set();
 
-function outlookTier(prob) {
-  if (prob >= 0.70) return { key: 'contender', label: 'Contender',   color: '#22c55e' };
-  if (prob >= 0.50) return { key: 'mix',       label: 'In the mix',  color: '#a3e635' };
-  if (prob >= 0.30) return { key: 'hunt',      label: 'On the hunt', color: '#f59e0b' };
-  return                   { key: 'rebuild',   label: 'Rebuilding',  color: '#94a3b8' };
+// Status from projected seed (inside the playoffs) and odds (outside them).
+//   Contender   top half of the playoff field (seeds 1-3 of 6)
+//   In the mix  the remaining playoff seeds
+//   On the hunt projected out, but better than 30% to get in
+//   Rebuilding  projected out and 30% or less
+// Colour follows seed: dark green at #1 to orange at the last playoff seed; outside is red/grey.
+function outlookSeedColor(seed, nPlayoff) {
+  if (seed > nPlayoff) return '#ef4444';
+  const t = nPlayoff > 1 ? (seed - 1) / (nPlayoff - 1) : 0;
+  return `hsl(${Math.round(135 - t * 95)},68%,48%)`;
+}
+function outlookTier(seed, prob, nPlayoff) {
+  const color = outlookSeedColor(seed, nPlayoff);
+  if (seed <= Math.ceil(nPlayoff / 2)) return { key: 'contender', label: 'Contender',   color };
+  if (seed <= nPlayoff)                return { key: 'mix',       label: 'In the mix',  color };
+  if (prob > 0.30)                     return { key: 'hunt',      label: 'On the hunt', color: '#f97316' };
+  return                                      { key: 'rebuild',   label: 'Rebuilding',  color: '#94a3b8' };
 }
 
 function outlookBestLineup(pids, rosterPositions, proj, liveWeek, opts = {}) {
@@ -5078,7 +5090,7 @@ async function computeOutlook(lg) {
   // Simulate the remaining games.
   const nPlayoff = ss.playoff_teams || 6;
   let made = 0;
-  const seedHits = {};
+  const seeds = [];
   for (let i = 0; i < OUTLOOK_SIMS; i++) {
     const wins = {}; ids.forEach(id => wins[id] = total[id].curW);
     simGames.forEach(([a, b, pA]) => {
@@ -5088,21 +5100,22 @@ async function computeOutlook(lg) {
     const order = [...ids].sort((x, y) => (wins[y] - wins[x]) || (total[y].pf - total[x].pf));
     const idx = order.indexOf(mine.roster_id);
     if (idx < nPlayoff) made++;
-    seedHits[idx + 1] = (seedHits[idx + 1] || 0) + 1;
+    seeds.push(idx + 1);
   }
   const prob = made / OUTLOOK_SIMS;
 
-  // Seed from the projected record alone (current wins + likely wins), points-for breaking ties.
-  const final = id => total[id].curW + total[id].likely;
-  const order = [...ids].sort((x, y) => (final(y) - final(x)) || (total[y].exp - total[x].exp) || (total[y].pf - total[x].pf));
-  const seed = order.indexOf(mine.roster_id) + 1;
+  // Seed from the same simulations as the odds, so the two can never disagree: the median finish,
+  // with the 10th-90th percentile as the range. Ranked by wins; points-for only breaks ties.
+  seeds.sort((x, y) => x - y);
+  const q = f => seeds[Math.min(seeds.length - 1, Math.floor(f * seeds.length))];
+  const seed = q(0.5), seedLo = q(0.1), seedHi = q(0.9);
   const me = total[mine.roster_id];
   const gamesLeft = me.games;
   return {
-    at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(prob),
+    at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
     projW: me.curW + me.likely, projL: me.curL + (gamesLeft - me.likely),
-    seed, weeks, anyEst: weeks.some(x => x.est), noGames: !weeks.length,
+    seed, seedLo, seedHi, weeks, anyEst: weeks.some(x => x.est), noGames: !weeks.length,
   };
 }
 
@@ -5144,9 +5157,10 @@ function buildOutlookStatusCell(lg) {
   if (!o) return `<td class="sb-loading">Projecting…</td>`;
   if (o.skip) return `<td class="sb-loading" title="${escHtml(o.skip)}">—</td>`;
   const rec = o.noGames ? `final ${fmtRec(o.cur.w, o.cur.l)}` : `proj ${fmtRec(o.projW, o.projL)}`;
-  return `<td class="po-status"><span class="po-chip" style="color:${o.tier.color};border-color:${o.tier.color}66;background:${o.tier.color}1a"
-      title="Chance of finishing in the top ${o.nPlayoff} of ${o.nTeams}, from 3,000 simulated finishes">${o.tier.label} · ${outlookPctText(o.prob)}</span>
-    <div class="po-sub">${rec} · seed ~#${o.seed}/${o.nTeams} · top ${o.nPlayoff} qualify</div></td>`;
+  const range = o.seedLo === o.seedHi ? `#${o.seed}` : `#${o.seed} (#${o.seedLo}–#${o.seedHi})`;
+  return `<td class="po-status"><span class="po-chip" style="color:${o.tier.color};border-color:${o.tier.color};background:#0d1117"
+      title="Status comes from projected seed (top ${Math.ceil(o.nPlayoff / 2)} = Contender, rest of the top ${o.nPlayoff} = In the mix); outside the playoffs it comes from the odds.">${o.tier.label} · seed ${range}</span>
+    <div class="po-sub"><b style="color:#cbd5e1">${outlookPctText(o.prob)}</b> to make playoffs (top ${o.nPlayoff}/${o.nTeams}) · ${rec}</div></td>`;
 }
 
 // Column 2: one equal-width box per remaining week.
@@ -5209,7 +5223,7 @@ function rebuildSummaryBar(mode) {
   const sortVal = r => sortKey === 'league'   ? r.lg.name.toLowerCase()
                      : sortKey === 'standing' ? (r.st?.rank ?? null)
                      : sortKey === 'h2h'      ? (r.h2h?.winPct ?? null)
-                     : sortKey === 'outlook'  ? (r.po && !r.po.skip ? r.po.prob : null)
+                     : sortKey === 'outlook'  ? (r.po && !r.po.skip ? r.po.seed + (1 - r.po.prob) : null)
                      : sortKey === 'issues'   ? (r.issues ? r.issues.length : null)
                      : null;
   built.sort((a, b) => {
@@ -5270,7 +5284,7 @@ function rebuildSummaryBar(mode) {
            mode === 'ls' ? 'Sort by roster rank — best first' : 'Sort by lineup rank — best first')}
       ${mode === 'ws' ? th('h2h', "This week's matchup",
            'Sort by win probability — worst matchups first, so the ones worth working on come to the top') : ''}
-      ${th('outlook', 'Playoff outlook', 'Chance of making the playoffs and overall status: Contender 70%+, In the mix 50-70%, On the hunt 30-50%, Rebuilding under 30%. Sort by odds — best first')}
+      ${th('outlook', 'Playoff outlook', 'Status from projected seed: Contender = top half of the playoff field, In the mix = other playoff seeds. Outside the playoffs: On the hunt above 30% odds, Rebuilding at 30% or less. Sort by projected seed, best first')}
       <th class="sb-th" title="Win probability for each remaining week">Rest of season</th>
       ${th('issues', 'Issues', 'Sort by number of flagged issues — most first')}
     </tr></thead>
