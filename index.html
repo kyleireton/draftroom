@@ -1001,6 +1001,11 @@ body {
 .sb-loading { color:#374151; font-style:italic; }
 .po-cell { min-width:340px; }
 .po-status { min-width:190px; }
+.po-gold { box-shadow:0 0 0 2px #0d1117, 0 0 0 3.5px #e6b422, 0 0 10px 1px rgba(230,180,34,.35); margin:2px 3px 2px 2px; }
+.po-bye { margin-left:7px; padding:0 5px; font-size:9px; font-weight:800; letter-spacing:.06em; color:#1a1405; background:linear-gradient(180deg,#f5d36b,#d9a521); border-radius:8px; }
+.sb-sortlink { cursor:pointer; padding:0 3px; border-radius:3px; }
+.sb-sortlink:hover { color:#e2e8f0; }
+.sb-sortlink.on { color:#e6b422; }
 .po-status .po-chip { display:inline-block; }
 .po-boxes { display:flex; gap:4px; flex-wrap:nowrap; }
 .po-box { display:inline-flex; flex-direction:column; align-items:center; justify-content:center; box-sizing:border-box; width:78px; height:40px; padding:3px 4px; border:1px solid; border-radius:6px; line-height:1.15; cursor:help; flex:0 0 78px; }
@@ -4858,7 +4863,7 @@ function scrollToWeeklyCard(lid) {
 // Each column's FIRST click sorts the way you most often want it: leagues A→Z,
 // standing best-first, win probability worst-first (the whole point is finding the
 // matchups you need to fix), issues most-first. Clicking again reverses.
-const SUMMARY_SORT_DEFAULT_DIR = { league: 1, standing: 1, h2h: 1, issues: -1 };
+const SUMMARY_SORT_DEFAULT_DIR = { league: 1, standing: 1, h2h: 1, issues: -1, outlook: 1, odds: -1 };
 let summarySort = (() => {
   try { return JSON.parse(localStorage.getItem('dr_summary_sort') || 'null')
              || { ls: { key: 'league', dir: 1 }, ws: { key: 'league', dir: 1 } }; }
@@ -5091,6 +5096,8 @@ async function computeOutlook(lg) {
   const nPlayoff = ss.playoff_teams || 6;
   let made = 0;
   const seeds = [];
+  const pow2 = 2 ** Math.ceil(Math.log2(Math.max(2, nPlayoff)));
+  const byes = pow2 - nPlayoff;          // 6 teams -> 2 byes, 7 -> 1, 4 or 8 -> none
   for (let i = 0; i < OUTLOOK_SIMS; i++) {
     const wins = {}; ids.forEach(id => wins[id] = total[id].curW);
     simGames.forEach(([a, b, pA]) => {
@@ -5109,13 +5116,14 @@ async function computeOutlook(lg) {
   seeds.sort((x, y) => x - y);
   const q = f => seeds[Math.min(seeds.length - 1, Math.floor(f * seeds.length))];
   const seed = q(0.5), seedLo = q(0.1), seedHi = q(0.9);
+  const byeProb = byes > 0 ? seeds.filter(x => x <= byes).length / seeds.length : 0;
   const me = total[mine.roster_id];
   const gamesLeft = me.games;
   return {
     at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
     projW: me.curW + me.likely, projL: me.curL + (gamesLeft - me.likely),
-    seed, seedLo, seedHi, weeks, anyEst: weeks.some(x => x.est), noGames: !weeks.length,
+    seed, seedLo, seedHi, byes, byeProb, weeks, anyEst: weeks.some(x => x.est), noGames: !weeks.length,
   };
 }
 
@@ -5158,9 +5166,13 @@ function buildOutlookStatusCell(lg) {
   if (o.skip) return `<td class="sb-loading" title="${escHtml(o.skip)}">—</td>`;
   const rec = o.noGames ? `final ${fmtRec(o.cur.w, o.cur.l)}` : `proj ${fmtRec(o.projW, o.projL)}`;
   const range = o.seedLo === o.seedHi ? `#${o.seed}` : `#${o.seed} (#${o.seedLo}–#${o.seedHi})`;
-  return `<td class="po-status"><span class="po-chip" style="color:${o.tier.color};border-color:${o.tier.color};background:#0d1117"
-      title="Status comes from projected seed (top ${Math.ceil(o.nPlayoff / 2)} = Contender, rest of the top ${o.nPlayoff} = In the mix); outside the playoffs it comes from the odds.">${o.tier.label} · seed ${range}</span>
-    <div class="po-sub"><b style="color:#cbd5e1">${outlookPctText(o.prob)}</b> to make playoffs (top ${o.nPlayoff}/${o.nTeams}) · ${rec}</div></td>`;
+  const hasBye = o.byes > 0 && o.seed <= o.byes;
+  const byePill = hasBye ? `<span class="po-bye" title="Projected top-${o.byes} seed: first-round bye (week 15 off)">★ BYE</span>` : '';
+  const byeOdds = o.byes > 0 && o.byeProb >= 0.05
+    ? ` · <span style="color:#e6b422">${outlookPctText(o.byeProb)} bye</span>` : '';
+  return `<td class="po-status"><span class="po-chip${hasBye ? ' po-gold' : ''}" style="color:${o.tier.color};border-color:${o.tier.color};background:#0d1117"
+      title="Status comes from projected seed (top ${Math.ceil(o.nPlayoff / 2)} = Contender, rest of the top ${o.nPlayoff} = In the mix); outside the playoffs it comes from the odds.">${o.tier.label} · seed ${range}${byePill}</span>
+    <div class="po-sub"><b style="color:#cbd5e1">${outlookPctText(o.prob)}</b> to make playoffs (top ${o.nPlayoff}/${o.nTeams})${byeOdds} · ${rec}</div></td>`;
 }
 
 // Column 2: one equal-width box per remaining week.
@@ -5223,6 +5235,7 @@ function rebuildSummaryBar(mode) {
   const sortVal = r => sortKey === 'league'   ? r.lg.name.toLowerCase()
                      : sortKey === 'standing' ? (r.st?.rank ?? null)
                      : sortKey === 'h2h'      ? (r.h2h?.winPct ?? null)
+                     : sortKey === 'odds'     ? (r.po && !r.po.skip ? r.po.prob : null)
                      : sortKey === 'outlook'  ? (r.po && !r.po.skip ? r.po.seed + (1 - r.po.prob) : null)
                      : sortKey === 'issues'   ? (r.issues ? r.issues.length : null)
                      : null;
@@ -5284,7 +5297,9 @@ function rebuildSummaryBar(mode) {
            mode === 'ls' ? 'Sort by roster rank — best first' : 'Sort by lineup rank — best first')}
       ${mode === 'ws' ? th('h2h', "This week's matchup",
            'Sort by win probability — worst matchups first, so the ones worth working on come to the top') : ''}
-      ${th('outlook', 'Playoff outlook', 'Status from projected seed: Contender = top half of the playoff field, In the mix = other playoff seeds. Outside the playoffs: On the hunt above 30% odds, Rebuilding at 30% or less. Sort by projected seed, best first')}
+      <th class="sb-th" title="Sort the playoff outlook by projected seed (best first) or by odds of making the playoffs (highest first)">Playoff outlook
+        <span class="sb-sortlink${sortKey === 'outlook' ? ' on' : ''}" onclick="setSummarySort('${mode}','outlook')">seed ${sortKey === 'outlook' ? (sortDir > 0 ? '▲' : '▼') : '⇅'}</span>
+        <span class="sb-sortlink${sortKey === 'odds' ? ' on' : ''}" onclick="setSummarySort('${mode}','odds')">odds ${sortKey === 'odds' ? (sortDir > 0 ? '▲' : '▼') : '⇅'}</span></th>
       <th class="sb-th" title="Win probability for each remaining week">Rest of season</th>
       ${th('issues', 'Issues', 'Sort by number of flagged issues — most first')}
     </tr></thead>
