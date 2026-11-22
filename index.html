@@ -999,6 +999,17 @@ body {
 .lc-standing.na { color:#374151; }
 .sb-issue { color:#fbbf24; }
 .sb-loading { color:#374151; font-style:italic; }
+.po-cell { min-width:210px; }
+.po-chip { font-size:11px; font-weight:700; border:1px solid; border-radius:10px; padding:2px 9px; cursor:pointer; white-space:nowrap; font-family:inherit; }
+.po-chip:hover { filter:brightness(1.25); }
+.po-sub { font-size:10px; color:#6b7280; margin-top:3px; white-space:nowrap; }
+.summary-bar tr.po-detail td { background:#0a0e14; padding:8px 12px; }
+.po-strip { display:flex; flex-wrap:wrap; gap:6px; }
+.po-wk { font-size:10px; color:#9ca3af; background:#111827; border:1px solid #1e2530; border-radius:6px; padding:3px 8px; }
+.po-wk.good { border-color:#16653466; color:#a7f3d0; }
+.po-wk b { color:#e2e8f0; margin-right:4px; }
+.po-foot { font-size:9px; color:#4b5563; margin-top:6px; }
+
 .sb-hide-btn { display:none; background:none; border:none; color:#4b5563; cursor:pointer; font-size:12px; margin-left:4px; padding:0 3px; line-height:1; border-radius:3px; }
 .sb-hide-btn:hover { color:#e2e8f0; background:#374151; }
 .summary-bar tr:hover .sb-hide-btn { display:inline; }
@@ -2944,7 +2955,7 @@ async function loadLeagueDetail(lg) {
 
     // Projections — non-fatal if unavailable (preseason, or early in a new week)
     leagueProjections = adjustProjectionsForLeague(lg,
-      await fetchWeekProjections(weeklyNflYear || season, week, scoringKey));
+      await fetchWeekProjections(weeklyNflYear || season, week, scoringKey, lg));
 
     // Find which roster is mine (match owner_id to currentUser's Sleeper id via username)
     leagueMyRosterId = null;
@@ -4227,7 +4238,7 @@ function weeklyTeamWireRows(pos) {
 // that fits it, so depth is one click away instead of sitting below the flex cut-off:
 //   QB / RB / WR / TE  that position's own weekly list (on the TE pill, TE1 is the best free TE)
 //   Flex               the merged RB/WR/TE list by flex rank (deep players carry a "~" estimate)
-//   All                QB plus every flex position, best tier first
+//   All                QB plus every flex position, by flex rank (QBs slotted at ~3x QB rank)
 //   DEF / K            team defenses and kickers (only offered to leagues that start them)
 function renderWeeklyWire(listEl, isRostered) {
   const f = wirePositionFilter;
@@ -4260,9 +4271,12 @@ function renderWeeklyWire(listEl, isRostered) {
     // no flex rank at all sorts last — still listed, never dropped.
     const flexKey = r => r.flexRank ?? (100000 + r.posRank);
     const lead    = r => r.pos === 'QB' ? r.posRank : flexKey(r);
+    // All: RB/WR/TE order strictly by FLEX rank (position tiers are per-position, which used to
+    // float TE1/TE2 above better RBs/WRs). QBs have no flex rank, so slot them at ~3x their QB rank
+    // (QB1 ~ #3, QB10 ~ #30) on the same scale.
+    const allKey = r => r.pos === 'QB' ? r.posRank * 3 : flexKey(r);
     rows.sort(f === 'ALL'
-      // Tier is the one cross-position number, so blend positions by tier, then by rank.
-      ? (a, b) => ((a.tier ?? 99) - (b.tier ?? 99)) || (lead(a) - lead(b))
+      ? (a, b) => (allKey(a) - allKey(b)) || (a.posRank - b.posRank)
       : f === 'FLEX'
         ? (a, b) => flexKey(a) - flexKey(b)
         : (a, b) => a.posRank - b.posRank);
@@ -4848,6 +4862,265 @@ function setSummarySort(mode, key) {
   rebuildSummaryBar(mode);
 }
 
+// ══ Playoff outlook ═══════════════════════════════════════════════════
+// Looks ahead from the first unplayed week through week 14 (every league's regular season
+// ends there). Method, and its limits:
+//   1. For every team and week, take the BEST projected lineup the roster could start under
+//      the league's slots, scored with the league's own rules (see scoreStatsForLeague).
+//      In the live week, once games have kicked off, the lineup actually set is used instead:
+//      played starters count their real points, the rest their projection.
+//   2. Win probability for a game is the same normal model as the weekly head-to-head
+//      (fitted per-position score spread, players treated as independent).
+//   3. "Likely W" counts games at 50%+; "exp" sums the probabilities. Median leagues add a
+//      second game each week against the league's median projected score.
+//   4. Playoff odds come from 3,000 simulated finishes of the remaining games, ranking by
+//      wins with points-for as the tiebreak. Seed is ranked from the projected record alone.
+// Sleeper may not publish projections for later weeks; when it doesn't, the first week's
+// projections stand in for them and those weeks are marked as estimates. Byes, injuries and
+// roster moves after today are not foreseen.
+const OUTLOOK_END_WEEK = 14, OUTLOOK_SIMS = 3000, OUTLOOK_TTL_MS = 20 * 60 * 1000;
+const _outlookCache = {}, _outlookPending = {}, _outlookMatchCache = {};
+let outlookExpanded = new Set();
+
+function outlookTier(prob) {
+  if (prob >= 0.70) return { key: 'contender', label: 'Contender',   color: '#22c55e' };
+  if (prob >= 0.50) return { key: 'mix',       label: 'In the mix',  color: '#a3e635' };
+  if (prob >= 0.30) return { key: 'hunt',      label: 'On the hunt', color: '#f59e0b' };
+  return                   { key: 'rebuild',   label: 'Rebuilding',  color: '#94a3b8' };
+}
+
+function outlookBestLineup(pids, rosterPositions, proj, liveWeek) {
+  const KNOWN = new Set(['QB','RB','WR','TE','K','DEF']);
+  const BAD   = new Set(['IR','PUP','SUS','SUSPENDED','NA']);
+  const cands = [];
+  (pids || []).forEach(pid => {
+    const raw = _sleeperRawPlayers?.[pid];
+    const pos = raw?.position;
+    if (!KNOWN.has(pos)) return;
+    const inj = String(raw?.injury_status || '').toUpperCase();
+    if (BAD.has(inj) || (liveWeek && inj === 'OUT')) return;
+    const v = proj[pid];
+    if (v == null) return;                         // bye week or no projection
+    cands.push({ pid, pos, proj: v });
+  });
+  cands.sort((a, b) => b.proj - a.proj);
+  const used = new Set(), out = [];
+  const slots = (rosterPositions || []).filter(x => x !== 'BN' && x !== 'IR' && x !== 'TAXI');
+  const take = elig => {
+    const c = cands.find(c => !used.has(c.pid) && elig.includes(c.pos));
+    if (c) { used.add(c.pid); out.push(c); }
+  };
+  slots.filter(x => KNOWN.has(x)).forEach(x => take([x]));
+  const FLEX = { WRRB_FLEX: ['RB','WR'], REC_FLEX: ['WR','TE'], FLEX: ['RB','WR','TE'], SUPER_FLEX: ['QB','RB','WR','TE'] };
+  ['WRRB_FLEX','REC_FLEX','FLEX','SUPER_FLEX'].forEach(f => slots.filter(x => x === f).forEach(() => take(FLEX[f])));
+  return out;
+}
+
+function outlookDist(starters, week) {
+  const phase = seasonPhaseSdMultiplier(week);
+  let mean = 0, v = 0;
+  starters.forEach(p => {
+    if (p.actual != null) { mean += p.actual; return; }     // already played: known
+    mean += p.proj;
+    if (p.proj <= 0) return;
+    const k = SCORE_SD[p.pos] || SCORE_SD_DEFAULT;
+    const sd = (k.a + k.b * p.proj) * phase;
+    v += sd * sd;
+  });
+  return { mean, sd: Math.sqrt(v) };
+}
+
+// Live week with games under way: the lineup actually set, played starters at their real score.
+function outlookLiveStarters(row, proj, week) {
+  const pp = row?.players_points || {};
+  const sts = (row?.starters || []).filter(pid => pid && pid !== '0');
+  if (!sts.length) return null;
+  let any = false;
+  const list = sts.map(pid => {
+    const pos = _sleeperRawPlayers?.[pid]?.position || '?';
+    if (playerGameStarted(pid, pp, week)) { any = true; return { pid, pos, proj: 0, actual: Number(pp[pid]) || 0 }; }
+    return { pid, pos, proj: proj[pid] ?? 0 };
+  });
+  return any ? list : null;
+}
+
+async function outlookMatchups(lid, week) {
+  const key = lid + ':' + week, hit = _outlookMatchCache[key];
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.rows;
+  let rows = [];
+  try { rows = await fetch(`https://api.sleeper.app/v1/league/${lid}/matchups/${week}`).then(r => r.json()); } catch(_) {}
+  if (!Array.isArray(rows)) rows = [];
+  _outlookMatchCache[key] = { rows, at: Date.now() };
+  return rows;
+}
+
+async function computeOutlook(lg) {
+  await ensureSleeperDb();
+  const myUid = await ensureMySleeperUserId();
+  const lid = lg.league_id, ss = lg.settings || {};
+  if (ss.best_ball === 1) return { skip: 'Best ball — no lineups to set' };
+  const [rosters, users] = await Promise.all([
+    fetch(`https://api.sleeper.app/v1/league/${lid}/rosters`).then(r => r.json()),
+    fetch(`https://api.sleeper.app/v1/league/${lid}/users`).then(r => r.json()).catch(() => []),
+  ]);
+  const mine = (rosters || []).find(r => r.owner_id === myUid || (r.co_owners || []).includes(myUid));
+  if (!mine) return { skip: 'Your team not found' };
+
+  const median = ss.league_average_match === 1, gpw = median ? 2 : 1;
+  const rec = r => ({ w: r.settings?.wins || 0, l: r.settings?.losses || 0, t: r.settings?.ties || 0,
+                      pf: (r.settings?.fpts || 0) + (r.settings?.fpts_decimal || 0) / 100 });
+  const played = Math.max(...rosters.map(r => { const c = rec(r); return c.w + c.l + c.t; }));
+  const startWk = (ss.start_week || 1) + Math.round(played / gpw);
+  const season = weeklyNflYear || new Date().getFullYear();
+  const rp = lg.roster_positions || [];
+  const scoringKey = lg.scoring_settings?.rec === 1 ? 'pts_ppr' : lg.scoring_settings?.rec === 0.5 ? 'pts_half_ppr' : 'pts_std';
+  const liveWk = weeklyNflWeek;
+
+  const ids = rosters.map(r => r.roster_id);
+  const total = {};                        // roster_id → { curW, likely, exp, pf, games }
+  ids.forEach(id => { const c = rec(rosters.find(r => r.roster_id === id));
+                      total[id] = { curW: c.w + 0.5 * c.t, curL: c.l + 0.5 * c.t, pf: c.pf, likely: 0, exp: 0, games: 0 }; });
+  const weeks = [], simGames = [];         // simGames: [aId, bId|null, pA]
+  let firstMap = null;
+
+  for (let w = startWk; w <= OUTLOOK_END_WEEK; w++) {
+    const rows = await outlookMatchups(lid, w);
+    let proj = adjustProjectionsForLeague(lg, await fetchWeekProjections(season, w, scoringKey, lg));
+    let est = false;
+    if (Object.keys(proj || {}).length < 100) { proj = firstMap || {}; est = true; }
+    else if (!firstMap) firstMap = proj;
+    if (!Object.keys(proj).length) continue;
+
+    const byId = Object.fromEntries(rows.map(r => [r.roster_id, r]));
+    const dist = {};
+    rosters.forEach(r => {
+      const row = byId[r.roster_id];
+      const live = (w === liveWk && row) ? outlookLiveStarters(row, proj, w) : null;
+      const st = live || outlookBestLineup(r.players, rp, proj, w === startWk);
+      dist[r.roster_id] = outlookDist(st, w);
+    });
+    const means = ids.map(id => dist[id].mean).sort((a, b) => a - b);
+    const medMean = means.length % 2 ? means[(means.length - 1) / 2] : (means[means.length / 2 - 1] + means[means.length / 2]) / 2;
+    const avgSd = ids.reduce((a, id) => a + dist[id].sd, 0) / (ids.length || 1);
+
+    const info = { w, est, opp: null, pWin: null, pMed: null, myMean: dist[mine.roster_id].mean };
+    const done = new Set();
+    rows.forEach(r => {
+      if (r.matchup_id == null || done.has(r.roster_id)) return;
+      const other = rows.find(x => x.roster_id !== r.roster_id && x.matchup_id === r.matchup_id);
+      if (!other) return;
+      done.add(r.roster_id); done.add(other.roster_id);
+      const a = dist[r.roster_id], b = dist[other.roster_id];
+      const sd = Math.sqrt(a.sd * a.sd + b.sd * b.sd);
+      const pA = sd > 0 ? normalCdf((a.mean - b.mean) / sd) : (a.mean > b.mean ? 1 : a.mean < b.mean ? 0 : 0.5);
+      simGames.push([r.roster_id, other.roster_id, pA]);
+      [[r.roster_id, pA], [other.roster_id, 1 - pA]].forEach(([id, p]) => {
+        total[id].exp += p; total[id].games++; if (p >= 0.5) total[id].likely++;
+      });
+      if (r.roster_id === mine.roster_id || other.roster_id === mine.roster_id) {
+        const oppId = r.roster_id === mine.roster_id ? other.roster_id : r.roster_id;
+        const oppRoster = rosters.find(x => x.roster_id === oppId);
+        const u = (users || []).find(x => x.user_id === oppRoster?.owner_id);
+        info.opp = u?.metadata?.team_name || u?.display_name || `Team ${oppId}`;
+        info.pWin = r.roster_id === mine.roster_id ? pA : 1 - pA;
+      }
+    });
+    if (median) {
+      ids.forEach(id => {
+        const d = dist[id], sd = Math.sqrt(d.sd * d.sd + (0.35 * avgSd) ** 2);
+        const p = sd > 0 ? normalCdf((d.mean - medMean) / sd) : (d.mean > medMean ? 1 : 0);
+        simGames.push([id, null, p]);
+        total[id].exp += p; total[id].games++; if (p >= 0.5) total[id].likely++;
+        if (id === mine.roster_id) info.pMed = p;
+      });
+    }
+    ids.forEach(id => { total[id].pf += dist[id].mean; });
+    weeks.push(info);
+  }
+
+  // Simulate the remaining games.
+  const nPlayoff = ss.playoff_teams || 6;
+  let made = 0;
+  const seedHits = {};
+  for (let i = 0; i < OUTLOOK_SIMS; i++) {
+    const wins = {}; ids.forEach(id => wins[id] = total[id].curW);
+    simGames.forEach(([a, b, pA]) => {
+      if (b == null) { if (Math.random() < pA) wins[a]++; }
+      else if (Math.random() < pA) wins[a]++; else wins[b]++;
+    });
+    const order = [...ids].sort((x, y) => (wins[y] - wins[x]) || (total[y].pf - total[x].pf));
+    const idx = order.indexOf(mine.roster_id);
+    if (idx < nPlayoff) made++;
+    seedHits[idx + 1] = (seedHits[idx + 1] || 0) + 1;
+  }
+  const prob = made / OUTLOOK_SIMS;
+
+  // Seed from the projected record alone (current wins + likely wins), points-for breaking ties.
+  const final = id => total[id].curW + total[id].likely;
+  const order = [...ids].sort((x, y) => (final(y) - final(x)) || (total[y].exp - total[x].exp) || (total[y].pf - total[x].pf));
+  const seed = order.indexOf(mine.roster_id) + 1;
+  const me = total[mine.roster_id];
+  const gamesLeft = me.games;
+  return {
+    at: Date.now(), startWk, median, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(prob),
+    cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
+    projW: me.curW + me.likely, projL: me.curL + (gamesLeft - me.likely),
+    seed, weeks, anyEst: weeks.some(x => x.est), noGames: !weeks.length,
+  };
+}
+
+function ensureOutlook(lg) {
+  const lid = lg.league_id, hit = _outlookCache[lid];
+  if (_outlookPending[lid]) return hit || null;
+  if (hit && Date.now() - hit.at < OUTLOOK_TTL_MS) return hit;
+  _outlookPending[lid] = true;
+  computeOutlook(lg)
+    .then(res => { _outlookCache[lid] = { at: Date.now(), ...res }; })
+    .catch(e => { console.error('[Outlook]', lg.name, e); _outlookCache[lid] = { at: Date.now(), skip: 'Could not load' }; })
+    .finally(() => { delete _outlookPending[lid]; rebuildSummaryBar('ls'); rebuildSummaryBar('ws'); });
+  return hit || null;
+}
+
+function toggleOutlook(lid, ev) {
+  ev?.stopPropagation();
+  if (outlookExpanded.has(lid)) outlookExpanded.delete(lid); else outlookExpanded.add(lid);
+  rebuildSummaryBar('ls'); rebuildSummaryBar('ws');
+}
+
+function ordinalSeed(n) { return '#' + n; }
+const fmtRec = (w, l) => `${Number.isInteger(w) ? w : w.toFixed(1)}-${Number.isInteger(l) ? l : l.toFixed(1)}`;
+
+function buildOutlookCell(lg) {
+  const o = _outlookCache[lg.league_id];
+  if (!o) return `<td class="sb-loading">Projecting…</td>`;
+  if (o.skip) return `<td class="sb-loading" title="${escHtml(o.skip)}">—</td>`;
+  const pct = Math.round(o.prob * 100);
+  const open = outlookExpanded.has(lg.league_id);
+  const sub = o.noGames
+    ? `final record ${fmtRec(o.cur.w, o.cur.l)} · seed ${ordinalSeed(o.seed)}/${o.nTeams}`
+    : `proj ${fmtRec(o.projW, o.projL)} · likely W ${o.likely}/${o.gamesLeft} · exp ${o.exp.toFixed(1)} · seed ~${ordinalSeed(o.seed)}/${o.nTeams}`;
+  return `<td class="po-cell">
+    <button class="po-chip" style="color:${o.tier.color};border-color:${o.tier.color}66;background:${o.tier.color}1a"
+      onclick="toggleOutlook('${lg.league_id}',event)" title="Click for week-by-week">${o.tier.label} · ${pct}% ${open ? '▾' : '▸'}</button>
+    <div class="po-sub">${sub}${o.anyEst ? ' <span title="Later weeks use this week\'s projections">·est</span>' : ''}</div>
+  </td>`;
+}
+
+function buildOutlookDetailRow(lg, cols) {
+  const o = _outlookCache[lg.league_id];
+  if (!o || o.skip || !outlookExpanded.has(lg.league_id)) return '';
+  const chips = o.weeks.map(x => {
+    const bits = [];
+    if (x.pWin != null) bits.push(`${x.pWin >= 0.5 ? 'W' : 'L'} ${Math.round(x.pWin * 100)}% vs ${escHtml(x.opp || '?')}`);
+    else bits.push('bye');
+    if (o.median && x.pMed != null) bits.push(`${x.pMed >= 0.5 ? 'W' : 'L'} ${Math.round(x.pMed * 100)}% vs median`);
+    const good = x.pWin != null && x.pWin >= 0.5;
+    return `<span class="po-wk${good ? ' good' : ''}"><b>Wk ${x.w}${x.est ? '*' : ''}</b> ${bits.join(' · ')} · proj ${x.myMean.toFixed(0)}</span>`;
+  }).join('');
+  const foot = `Tier from simulated playoff odds (top ${o.nPlayoff} of ${o.nTeams}). ${o.median ? 'Median league: each week counts two games. ' : ''}${o.anyEst ? '* = later-week projections not yet published; this week\'s used. ' : ''}`;
+  return `<tr class="po-detail"><td colspan="${cols}"><div class="po-strip">${chips || 'No games left through week 14.'}</div><div class="po-foot">${foot}</div></td></tr>`;
+}
+
 function rebuildSummaryBar(mode) {
   const barId = mode === 'ls' ? 'ls-summary-bar' : 'ws-summary-bar';
   const bar = document.getElementById(barId);
@@ -4873,7 +5146,9 @@ function rebuildSummaryBar(mode) {
                                                          : myWeeklyStanding(lg, data), null);
     const h2h    = mode === 'ws' && data?.loaded
       ? guard('matchup', () => weeklyH2H(lg, data), null) : null;
-    return { lg, data, issues, st, h2h };
+    ensureOutlook(lg);
+    const po = _outlookCache[lg.league_id] || null;
+    return { lg, data, issues, st, h2h, po };
   });
 
   const sortKey = summarySort[mode]?.key || 'league';
@@ -4881,6 +5156,7 @@ function rebuildSummaryBar(mode) {
   const sortVal = r => sortKey === 'league'   ? r.lg.name.toLowerCase()
                      : sortKey === 'standing' ? (r.st?.rank ?? null)
                      : sortKey === 'h2h'      ? (r.h2h?.winPct ?? null)
+                     : sortKey === 'outlook'  ? (r.po && !r.po.skip ? r.po.prob : null)
                      : sortKey === 'issues'   ? (r.issues ? r.issues.length : null)
                      : null;
   built.sort((a, b) => {
@@ -4894,6 +5170,7 @@ function rebuildSummaryBar(mode) {
     return c * sortDir || a.lg.name.localeCompare(b.lg.name);
   });
 
+  const nCols = mode === 'ws' ? 5 : 4;
   const rows = built.map(({ lg, data, issues, st, h2h }) => {
     const lid     = lg.league_id;
     const onClick = mode === 'ls' ? `scrollToLeagueCard('${lid}')` : `scrollToWeeklyCard('${lid}')`;
@@ -4918,8 +5195,9 @@ function rebuildSummaryBar(mode) {
       <td><span class="sb-league-name" title="${escHtml(lg.name)}">${escHtml(lg.name)}</span>${kd ? `<span style="margin-left:5px">${kd}</span>` : ''}<button class="sb-hide-btn" onclick="toggleSummaryLeague('${lid}',event)" title="Hide from summary">×</button></td>
       ${standingCell}
       ${h2hCell}
+      ${buildOutlookCell(lg)}
       ${issueCell}
-    </tr>`;
+    </tr>${buildOutlookDetailRow(lg, nCols)}`;
   }).join('');
 
   const showAllFooter = hiddenCount > 0
@@ -4938,6 +5216,7 @@ function rebuildSummaryBar(mode) {
            mode === 'ls' ? 'Sort by roster rank — best first' : 'Sort by lineup rank — best first')}
       ${mode === 'ws' ? th('h2h', "This week's matchup",
            'Sort by win probability — worst matchups first, so the ones worth working on come to the top') : ''}
+      ${th('outlook', 'Playoff outlook', 'Odds of making the playoffs from simulated finishes, plus projected record and seed through week 14. Sort by odds — best first')}
       ${th('issues', 'Issues', 'Sort by number of flagged issues — most first')}
     </tr></thead>
     <tbody>${rows}</tbody>
@@ -4950,6 +5229,8 @@ function refreshSleeperRosters(mode) {
   const btn = document.getElementById(btnId);
   if (btn) { btn.textContent = '↻ Syncing…'; btn.disabled = true; }
   allLeaguesCache = {};
+  Object.keys(_outlookCache).forEach(k => delete _outlookCache[k]);
+  Object.keys(_outlookMatchCache).forEach(k => delete _outlookMatchCache[k]);
   const done = () => { if (btn) { btn.textContent = '↻ Sync Rosters'; btn.disabled = false; } };
   if (mode === 'ls') {
     renderLeagueSummary();
@@ -5007,7 +5288,7 @@ async function loadOneLeagueSummary(lg, myUid, cardIndex) {
     const week       = wk.week;
 
     const projections = adjustProjectionsForLeague(lg,
-      await fetchWeekProjections(weeklyNflYear || season, week, scoringKey));
+      await fetchWeekProjections(weeklyNflYear || season, week, scoringKey, lg));
 
     // Load rankings from Supabase for this league
     let csvPlayers = [];
@@ -5474,7 +5755,53 @@ function _normaliseProjections(raw, scoringKey) {
   return out;
 }
 
-async function fetchWeekProjections(season, week, scoringKey) {
+// Raw projected stat lines (pid → stats), kept so each league can score them with ITS rules.
+const _rawProjCache = {};   // "season:week" → { stats, at }
+function _extractRawStats(raw) {
+  const out = {};
+  const take = (pid, stats) => { if (pid && stats && typeof stats === 'object') out[pid] = stats; };
+  if (Array.isArray(raw)) raw.forEach(r => take(r?.player_id ?? r?.playerId, r?.stats ?? r));
+  else if (raw && typeof raw === 'object') Object.entries(raw).forEach(([pid, v]) => take(pid, v?.stats ?? v));
+  return out;
+}
+
+// Score a raw stat line with a league's scoring_settings. Returns null when the stat line
+// carries nothing we can score (caller keeps Sleeper's pts_* total instead).
+const _SCORE_SKIP = /^(pts_|gp$|gs$|gms_active|off_snp|tm_off_snp|tm_def_snp|tm_st_snp|st_snp|def_snp|rank_|adp_)/;
+function scoreStatsForLeague(lg, pid, stats) {
+  const ss = lg?.scoring_settings;
+  if (!ss || !stats) return null;
+  const pos = _sleeperRawPlayers?.[pid]?.position;
+  if (pos === 'DEF' || pos === 'K' || pos === 'DST') return null;   // brackets / kicker tiers: keep Sleeper's total
+  let pts = 0, used = 0;
+  Object.keys(stats).forEach(k => {
+    if (_SCORE_SKIP.test(k)) return;
+    const w = Number(ss[k]), v = Number(stats[k]);
+    if (!isFinite(w) || !isFinite(v) || !w || !v) return;
+    pts += v * w; used++;
+  });
+  // Position-specific reception premiums (TEP etc.) when the feed doesn't break them out itself.
+  const prem = { TE: 'bonus_rec_te', RB: 'bonus_rec_rb', WR: 'bonus_rec_wr' }[pos];
+  if (prem && Number(ss[prem]) && stats[prem] == null && Number(stats.rec)) pts += Number(stats.rec) * Number(ss[prem]);
+  return used ? Math.round(pts * 10) / 10 : null;
+}
+
+const _leagueProjCache = {};  // "season:week:league" → { map, at }
+async function fetchWeekProjections(season, week, scoringKey, lg) {
+  const base = await _fetchWeekProjectionsBase(season, week, scoringKey);
+  if (!lg?.scoring_settings) return base;
+  const raw = _rawProjCache[`${season}:${week}`]?.stats;
+  if (!raw) return base;
+  const ck = `${season}:${week}:${lg.league_id}`;
+  const hit = _leagueProjCache[ck];
+  if (hit && Date.now() - hit.at < PROJ_TTL_MS) return hit.map;
+  const map = { ...base };
+  Object.entries(raw).forEach(([pid, st]) => { const v = scoreStatsForLeague(lg, pid, st); if (v != null) map[pid] = v; });
+  _leagueProjCache[ck] = { map, at: Date.now() };
+  return map;
+}
+
+async function _fetchWeekProjectionsBase(season, week, scoringKey) {
   const key = `${season}:${week}:${scoringKey}`;
   const hit = _projCache[key];
   if (hit && Date.now() - hit.at < PROJ_TTL_MS && hit.ok) return hit.map;
@@ -5488,8 +5815,10 @@ async function fetchWeekProjections(season, week, scoringKey) {
     try {
       const res = await fetch(url);
       if (!res.ok) continue;
-      const map = _normaliseProjections(await res.json(), scoringKey);
+      const json = await res.json();
+      const map = _normaliseProjections(json, scoringKey);
       if (Object.keys(map).length) {
+        _rawProjCache[`${season}:${week}`] = { stats: _extractRawStats(json), at: Date.now() };
         _projCache[key] = { map, at: Date.now(), ok: true };
         return map;
       }
@@ -7162,7 +7491,7 @@ async function loadOneLeagueWeekly(lg, myUid, cardIndex) {
     const users    = await userRes.json();
     const matchupsRaw = await matchupRes.json().catch(() => []);
     const projections = adjustProjectionsForLeague(lg,
-      await fetchWeekProjections(year || season, week, scoringKey));
+      await fetchWeekProjections(year || season, week, scoringKey, lg));
     let myRosterId = null;
     if (myUid) { const r = rosters.find(r => r.owner_id === myUid); if (r) myRosterId = r.roster_id; }
     const matchupsAll = Array.isArray(matchupsRaw) ? matchupsRaw : [];
