@@ -4919,7 +4919,10 @@ function outlookTier(seed, prob, nPlayoff) {
 }
 
 function outlookBestLineup(pids, rosterPositions, proj, liveWeek, opts = {}) {
-  const { excl, playing, ref } = opts;       // excl: IR/taxi slots · playing: NFL teams with a game · ref: map for naming
+  const { excl, playing, ref, locked = [], actualMap = null, skipSet = null } = opts;
+  // excl: IR/taxi slots · playing: NFL teams with a game · ref: map for naming
+  // Live week: locked = started players pinned to their slot at their real score; actualMap = real scores
+  // for played players (best ball counts them wherever they sit); skipSet = played players who can no longer be started.
   const KNOWN = new Set(['QB','RB','WR','TE','K','DEF']);
   const BAD   = new Set(['IR','PUP','SUS','SUSPENDED','NA','COV']);
   const cands = [], byeOut = [], irOut = [];
@@ -4934,6 +4937,8 @@ function outlookBestLineup(pids, rosterPositions, proj, liveWeek, opts = {}) {
       if (pos !== 'K' && pos !== 'DEF' && (ref?.[pid] ?? proj[pid] ?? 0) >= 6) irOut.push(label());
       return;
     }
+    if (skipSet && skipSet.has(pid)) return;
+    if (actualMap && pid in actualMap) { cands.push({ pid, pos, proj: actualMap[pid], actual: actualMap[pid] }); return; }
     if (liveWeek && inj === 'OUT') return;
     // Bye: this player's NFL team has no game that week.
     if (playing && pos !== 'DEF') {
@@ -4948,6 +4953,11 @@ function outlookBestLineup(pids, rosterPositions, proj, liveWeek, opts = {}) {
   cands.sort((a, b) => b.proj - a.proj);
   const used = new Set(), out = [];
   const slots = (rosterPositions || []).filter(x => x !== 'BN' && x !== 'IR' && x !== 'TAXI');
+  locked.forEach(l => {                       // started players keep their slot and their real score
+    const i = slots.indexOf(l.slot);
+    if (i >= 0) slots.splice(i, 1);
+    used.add(l.pid); out.push(l);
+  });
   const take = elig => {
     const c = cands.find(c => !used.has(c.pid) && elig.includes(c.pos));
     if (c) { used.add(c.pid); out.push(c); }
@@ -4973,23 +4983,39 @@ function outlookDist(starters, week) {
   return { mean, sd: Math.sqrt(v) };
 }
 
-// Live week with games under way: the lineup actually set, played starters at their real score.
-function outlookLiveStarters(row, proj, week) {
-  const pp = row?.players_points || {};
-  const sts = (row?.starters || []).filter(pid => pid && pid !== '0');
-  if (!sts.length) return null;
-  let any = false;
-  const list = sts.map(pid => {
-    const pos = _sleeperRawPlayers?.[pid]?.position || '?';
-    if (playerGameStarted(pid, pp, week)) { any = true; return { pid, pos, proj: 0, actual: Number(pp[pid]) || 0 }; }
-    return { pid, pos, proj: proj[pid] ?? 0 };
+// Live week: who has already played, from the NFL schedule for THAT week (kickoff passed or game in/after
+// progress), independent of which screen is open. Played starters stay in their slot at their real score;
+// everyone else is still chosen from projections. Best ball counts every played player's real score instead.
+// Returns null when no game has started, so the plain best-projected lineup is used.
+function outlookLiveContext(row, pids, rp, bestBall, sched) {
+  if (!row || !sched?.map) return null;
+  const now = Date.now(), pp = row.players_points || {};
+  const played = pid => {
+    const t = lockTeamOfPid(pid), ko = sched.map[t], st = sched.states?.[t];
+    return (ko != null && ko <= now) || st === 'in' || st === 'post';
+  };
+  const playedIds = (pids || []).filter(played);
+  if (!playedIds.length) return null;
+  const pts = pid => Number(pp[pid]) || 0;
+  if (bestBall) {
+    const actualMap = {};
+    playedIds.forEach(pid => { actualMap[pid] = pts(pid); });
+    return { actualMap };
+  }
+  const slots = (rp || []).filter(x => x !== 'BN' && x !== 'IR' && x !== 'TAXI');
+  const locked = [];
+  (row.starters || []).forEach((pid, i) => {
+    if (!pid || pid === '0' || i >= slots.length || !played(pid)) return;
+    locked.push({ pid, pos: _sleeperRawPlayers?.[pid]?.position || '?', slot: slots[i], proj: 0, actual: pts(pid) });
   });
-  return any ? list : null;
+  const lockedIds = new Set(locked.map(l => l.pid));
+  // A player who already played from the bench can't be swapped in any more.
+  return { locked, skipSet: new Set(playedIds.filter(pid => !lockedIds.has(pid))) };
 }
 
-async function outlookMatchups(lid, week) {
+async function outlookMatchups(lid, week, live) {
   const key = lid + ':' + week, hit = _outlookMatchCache[key];
-  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.rows;
+  if (hit && Date.now() - hit.at < (live ? 60 * 1000 : 10 * 60 * 1000)) return hit.rows;   // live week: 1 min
   let rows = [];
   try { rows = await fetch(`https://api.sleeper.app/v1/league/${lid}/matchups/${week}`).then(r => r.json()); } catch(_) {}
   if (!Array.isArray(rows)) rows = [];
@@ -5030,7 +5056,7 @@ async function computeOutlook(lg) {
   } catch(_) {}
 
   for (let w = startWk; w <= OUTLOOK_END_WEEK; w++) {
-    const rows = await outlookMatchups(lid, w);
+    const rows = await outlookMatchups(lid, w, w === startWk);
     let proj = adjustProjectionsForLeague(lg, await fetchWeekProjections(season, w, scoringKey, lg));
     let est = false;
     if (Object.keys(proj || {}).length < 100) { proj = lastKnown; est = true; }
@@ -5043,12 +5069,13 @@ async function computeOutlook(lg) {
 
     const byId = Object.fromEntries(rows.map(r => [r.roster_id, r]));
     const dist = {};
-    let myBye = [], myIr = [];
+    let myBye = [], myIr = [], weekLive = false;
     rosters.forEach(r => {
       const row = byId[r.roster_id];
-      const live = (w === liveWk && row && !bestBall) ? outlookLiveStarters(row, proj, w) : null;
-      const st = live || outlookBestLineup(r.players, rp, proj, w === startWk,
-        { excl: new Set([...(r.reserve || []), ...(r.taxi || [])]), playing, ref: lastKnown });
+      const liveCtx = w === startWk ? outlookLiveContext(row, r.players, rp, bestBall, sched) : null;
+      if (liveCtx) weekLive = true;
+      const st = outlookBestLineup(r.players, rp, proj, w === startWk,
+        { excl: new Set([...(r.reserve || []), ...(r.taxi || [])]), playing, ref: lastKnown, ...(liveCtx || {}) });
       dist[r.roster_id] = outlookDist(st, w);
       if (r.roster_id === mine.roster_id) { myBye = st.byeOut || []; myIr = st.irOut || []; }
     });
@@ -5056,7 +5083,7 @@ async function computeOutlook(lg) {
     const medMean = means.length % 2 ? means[(means.length - 1) / 2] : (means[means.length / 2 - 1] + means[means.length / 2]) / 2;
     const avgSd = ids.reduce((a, id) => a + dist[id].sd, 0) / (ids.length || 1);
 
-    const info = { w, est, opp: null, pWin: null, pMed: null, myMean: dist[mine.roster_id].mean, oppMean: null, byeKnown: !!playing, byeOut: myBye, irOut: myIr };
+    const info = { w, est, opp: null, pWin: null, pMed: null, myMean: dist[mine.roster_id].mean, oppMean: null, byeKnown: !!playing, byeOut: myBye, irOut: myIr, live: weekLive };
     const done = new Set();
     rows.forEach(r => {
       if (r.matchup_id == null || done.has(r.roster_id)) return;
@@ -5123,6 +5150,7 @@ async function computeOutlook(lg) {
     at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
     projW: me.curW + me.likely, projL: me.curL + (gamesLeft - me.likely),
+    live: weeks.some(x => x.live),
     seed, seedLo, seedHi, byes, byeProb, weeks, anyEst: weeks.some(x => x.est), noGames: !weeks.length,
   };
 }
@@ -5130,7 +5158,7 @@ async function computeOutlook(lg) {
 function ensureOutlook(lg) {
   const lid = lg.league_id, hit = _outlookCache[lid];
   if (_outlookPending[lid]) return hit || null;
-  if (hit && Date.now() - hit.at < OUTLOOK_TTL_MS) return hit;
+  if (hit && Date.now() - hit.at < (hit.live ? 5 * 60 * 1000 : OUTLOOK_TTL_MS)) return hit;   // games in progress: 5 min
   _outlookPending[lid] = true;
   computeOutlook(lg)
     .then(res => { _outlookCache[lid] = { at: Date.now(), ...res }; })
@@ -5138,6 +5166,14 @@ function ensureOutlook(lg) {
     .finally(() => { delete _outlookPending[lid]; rebuildSummaryBar('ls'); rebuildSummaryBar('ws'); });
   return hit || null;
 }
+
+// While games are in progress, keep the outlook current without a manual sync: each minute, any league
+// whose cached outlook is live and older than 5 minutes is recomputed from fresh Sleeper data.
+setInterval(() => {
+  if (document.hidden) return;
+  if (!Object.values(_outlookCache).some(o => o && o.live)) return;
+  (leagueList || []).forEach(lg => ensureOutlook(lg));
+}, 60 * 1000);
 
 function toggleOutlook(lid, ev) {
   ev?.stopPropagation();
@@ -5170,7 +5206,7 @@ function buildOutlookStatusCell(lg) {
   const byePill = hasBye ? `<span class="po-bye" title="Projected top-${o.byes} seed: first-round bye (week 15 off)">★ BYE</span>` : '';
   const byeOdds = o.byes > 0 && o.byeProb >= 0.05
     ? ` · <span style="color:#e6b422">${outlookPctText(o.byeProb)} bye</span>` : '';
-  return `<td class="po-status"><span class="po-chip${hasBye ? ' po-gold' : ''}" style="color:${o.tier.color};border-color:${o.tier.color};background:#0d1117"
+  return `<td class="po-status" title="Updated ${new Date(o.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${o.live ? ' · games in progress, refreshes every 5 minutes' : ''}"><span class="po-chip${hasBye ? ' po-gold' : ''}" style="color:${o.tier.color};border-color:${o.tier.color};background:#0d1117"
       title="Status comes from projected seed (top ${Math.ceil(o.nPlayoff / 2)} = Contender, rest of the top ${o.nPlayoff} = In the mix); outside the playoffs it comes from the odds.">${o.tier.label} · seed ${range}${byePill}</span>
     <div class="po-sub"><b style="color:#cbd5e1">${outlookPctText(o.prob)}</b> to make playoffs (top ${o.nPlayoff}/${o.nTeams})${byeOdds} · ${rec}</div></td>`;
 }
@@ -5190,8 +5226,9 @@ function buildOutlookCell(lg) {
     if (!x.byeKnown) lines.push('NFL schedule unavailable, byes not applied');
     if (x.est) lines.push('Projections for this week are not published yet: latest known values used');
     const mark = (x.est || !x.byeKnown) ? '*' : '';
+    if (x.live) lines.push('Live: players whose games have started count at their actual score so far');
     const top = x.pWin != null ? Math.round(x.pWin * 100) + '%' : '—';
-    const sub = `Wk${x.w}${mark}` + (o.median ? ` · ${x.pMed != null ? 'med ' + Math.round(x.pMed * 100) + '%' : 'med —'}` : '');
+    const sub = `Wk${x.w}${mark}${x.live ? ' ●' : ''}` + (o.median ? ` · ${x.pMed != null ? 'med ' + Math.round(x.pMed * 100) + '%' : 'med —'}` : '');
     return winProbBox(x.pWin, top, sub, lines.join('\n'));
   }).join('');
   const note = o.noGames ? '' : `<div class="po-sub">likely W ${o.likely}/${o.gamesLeft} · exp ${o.exp.toFixed(1)}${o.median ? ' · each week = 2 games' : ''}</div>`;
@@ -5323,6 +5360,9 @@ function refreshSleeperRosters(mode) {
   allLeaguesCache = {};
   Object.keys(_outlookCache).forEach(k => delete _outlookCache[k]);
   Object.keys(_outlookMatchCache).forEach(k => delete _outlookMatchCache[k]);
+  // A sync must reach every input: projections, league-scored projections, NFL schedule and game states.
+  [_projCache, _rawProjCache, _leagueProjCache, _weekKoCache].forEach(c => Object.keys(c).forEach(k => delete c[k]));
+  try { localStorage.removeItem(KICKOFF_LS_KEY); } catch(_) {}
   const done = () => { if (btn) { btn.textContent = '↻ Sync Rosters'; btn.disabled = false; } };
   if (mode === 'ls') {
     renderLeagueSummary();
