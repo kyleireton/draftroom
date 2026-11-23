@@ -179,6 +179,25 @@ body {
   letter-spacing:.06em; margin:7px 0 3px; }
 .ld-body { display: flex; flex: 1; overflow: hidden; }
 .ld-board { flex: 1; overflow: auto; padding: 10px 12px 24px; }
+.ld-team-grid.pr-mode { display:block; min-width:0; padding-right:0; }
+.pr-wrap { max-width:1100px; }
+.pr-title { font-size:15px; font-weight:700; color:#e2e8f0; margin:2px 0 10px; }
+.pr-dim { color:#64748b; font-weight:500; font-size:12px; }
+.pr-table { width:100%; border-collapse:collapse; font-size:13px; }
+.pr-table th { padding:6px 10px; font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:.06em; text-align:center; border-bottom:1px solid #1e2530; white-space:nowrap; }
+.pr-table td { padding:7px 10px; border-bottom:1px solid #1a212c; vertical-align:middle; }
+.pr-table tr.pr-mine td { background:rgba(79,126,248,.10); }
+.pr-table tr.pr-bye td.pr-seed { box-shadow:inset 3px 0 0 #e6b422; }
+.pr-table tr.pr-cut td { border-bottom:2px dashed #b45309; }
+.pr-seed { text-align:center; width:48px; }
+.pr-seedbadge { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border:2px solid; border-radius:50%; font-weight:800; font-size:13px; }
+.pr-team { color:#e2e8f0; font-weight:600; white-space:nowrap; }
+.pr-you { font-size:9px; font-weight:800; color:#93c5fd; border:1px solid #3b82f6; border-radius:8px; padding:0 5px; margin-left:4px; text-transform:uppercase; }
+.pr-num { text-align:center; color:#cbd5e1; white-space:nowrap; }
+.pr-final { font-weight:700; color:#f1f5f9; }
+.pr-wk { text-align:center; padding:4px 3px !important; }
+.po-box.pr-box { width:92px; height:auto; min-height:44px; flex:none; padding:4px 4px; cursor:help; }
+.pr-foot { font-size:11px; color:#64748b; margin-top:12px; line-height:1.5; max-width:900px; }
 .ld-team-grid { display: flex; gap: 8px; align-items: flex-start; min-width: max-content; padding-right: 100vw; }
 .ld-team-col.my-team {
   position: sticky; left: 0; z-index: 10;
@@ -1214,6 +1233,7 @@ body {
       <span class="ldw-toggle">
         <button class="ldw-tbtn active" id="ldw-btn-season" onclick="setLdBoardMode('season')" title="Rank every roster by your season-long rankings">Season</button>
         <button class="ldw-tbtn" id="ldw-btn-weekly" onclick="setLdBoardMode('weekly')" title="Rank every roster by this week's rankings, with kickoff locks and projected totals">Weekly</button>
+        <button class="ldw-tbtn" id="ldw-btn-race" onclick="setLdBoardMode('race')" title="Every team's projected record, seed and playoff odds, with its win chance each remaining week">Playoff race</button>
       </span>
       <span id="ld-rankings-status" style="font-size:11px;color:#374151"></span>
       <button class="ld-upload-btn" onclick="document.getElementById('league-csv-input').click()">↑ Update rankings</button>
@@ -2903,18 +2923,20 @@ async function ensureLeagueMatchups(lg, week) {
 function syncWireSubtitle() {
   const sub = document.getElementById('ld-wire-sub');
   if (!sub) return;
-  sub.textContent = ldBoardMode === 'season' ? 'Top available by rank'
+  sub.textContent = ldBoardMode !== 'weekly' ? 'Top available by rank'
                   : weeklyHasRankings        ? 'Top available by weekly rank'
                   :                            'Top available by season rank';
 }
 
 // Season / Weekly board toggle
 function setLdBoardMode(mode) {
-  ldBoardMode = mode === 'weekly' ? 'weekly' : 'season';
+  ldBoardMode = mode === 'weekly' ? 'weekly' : mode === 'race' ? 'race' : 'season';
   try { localStorage.setItem('dr_ld_mode', ldBoardMode); } catch(_) {}
-  const sb = document.getElementById('ldw-btn-season'), wb = document.getElementById('ldw-btn-weekly');
+  const sb = document.getElementById('ldw-btn-season'), wb = document.getElementById('ldw-btn-weekly'), rb = document.getElementById('ldw-btn-race');
   if (sb) sb.classList.toggle('active', ldBoardMode === 'season');
   if (wb) wb.classList.toggle('active', ldBoardMode === 'weekly');
+  if (rb) rb.classList.toggle('active', ldBoardMode === 'race');
+  document.getElementById('ld-team-grid')?.classList.toggle('pr-mode', ldBoardMode === 'race');
   syncWireSubtitle();
   if (ldBoardMode === 'weekly' && leagueMeta?.league_id) {
     ensureLeagueMatchups(leagueMeta, leagueWeek).then(renderLeagueDetail);
@@ -3864,7 +3886,64 @@ function renderLeagueDetailWeekly() {
   bn.style.display = '';
 }
 
+// ── Playoff race: every team's projected finish, from the same simulation as the summary table ──
+function renderLeagueDetailRace() {
+  const bn = document.getElementById('ldw-banner');
+  if (bn) { bn.style.display = 'none'; bn.innerHTML = ''; }
+  const grid = document.getElementById('ld-team-grid');
+  grid.classList.add('pr-mode');
+  const msg = t => { grid.innerHTML = `<div style="color:#64748b;font-size:13px;padding:20px">${t}</div>`; };
+  if (!leagueMeta?.league_id) return msg('No league loaded.');
+  const o = ensureOutlook(leagueMeta);
+  if (!o) return msg('Projecting every team’s remaining schedule…');
+  if (o.skip) return msg(escHtml(o.skip));
+  if (!o.teams?.length) return msg('No projection available yet.');
+
+  const weekNums = o.weeks.map(x => x.w);
+  const flags = o.weekFlags || {};
+  const head = weekNums.map(w => `<th class="pr-wk" title="${flags[w]?.est ? 'Projections for this week are not published yet: latest known values used. ' : ''}${flags[w]?.live ? 'Games in progress: played players count at their actual score. ' : ''}">Wk ${w}${flags[w]?.est ? '*' : ''}${flags[w]?.live ? ' ●' : ''}</th>`).join('');
+  const rows = o.teams.map(t => {
+    const byW = Object.fromEntries(t.weeks.map(x => [x.w, x]));
+    const cells = weekNums.map(w => {
+      const x = byW[w];
+      if (!x || x.p == null) return `<td class="pr-wk"><span class="po-box none pr-box"><b>—</b><i>no game</i></span></td>`;
+      const h = winProbHue(x.p), pct = Math.round(x.p * 100);
+      const med = o.median && x.pMed != null ? `<i>med ${Math.round(x.pMed * 100)}%</i>` : '';
+      const opp = (x.opp || '?'), short = opp.length > 11 ? opp.slice(0, 10) + '…' : opp;
+      const tip = `Week ${w}: ${pct}% to beat ${opp}` + (o.median && x.pMed != null ? `\n${Math.round(x.pMed * 100)}% to beat the league median` : '');
+      return `<td class="pr-wk"><span class="po-box pr-box" title="${escHtml(tip)}" style="background:hsl(${h},55%,22%);border-color:hsl(${h},60%,36%);color:hsl(${h},75%,82%)"><b>${pct}%</b><i>vs ${escHtml(short)}</i>${med}</span></td>`;
+    }).join('');
+    const sc = outlookSeedColor(t.seed, o.nPlayoff);
+    const bye = o.byes > 0 && t.seed <= o.byes;
+    const range = t.seedLo === t.seedHi ? `#${t.seed}` : `#${t.seedLo}–#${t.seedHi}`;
+    return `<tr class="${t.mine ? 'pr-mine' : ''}${bye ? ' pr-bye' : ''}${t.seed === o.nPlayoff ? ' pr-cut' : ''}">
+      <td class="pr-seed"><span class="pr-seedbadge" style="border-color:${sc};color:${sc}">${t.seed}</span></td>
+      <td class="pr-team">${escHtml(t.name)}${t.mine ? ' <span class="pr-you">you</span>' : ''}${bye ? ' <span class="po-bye">★ BYE</span>' : ''}</td>
+      <td class="pr-num">${fmtRec(t.cur.w, t.cur.l)}</td>
+      <td class="pr-num" title="Sum of the weekly win probabilities shown to the right">+${t.exp.toFixed(1)} <span class="pr-dim">of ${t.games}</span></td>
+      <td class="pr-num pr-final">${t.finalW.toFixed(1)}–${t.finalL.toFixed(1)}</td>
+      <td class="pr-num"><b style="color:${sc}">${outlookPctText(t.prob)}</b>${o.byes > 0 && t.byeProb >= 0.05 ? `<div class="pr-dim" style="color:#e6b422">${outlookPctText(t.byeProb)} bye</div>` : ''}</td>
+      <td class="pr-num pr-dim">${range}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  grid.innerHTML = `<div class="pr-wrap">
+    <div class="pr-title">Playoff race <span class="pr-dim">· top ${o.nPlayoff} of ${o.nTeams} qualify${o.byes > 0 ? ` · top ${o.byes} get a week-15 bye` : ''}${o.median ? ' · median league: each week counts two games' : ''}</span></div>
+    <table class="pr-table">
+      <thead><tr><th>Seed</th><th style="text-align:left">Team</th><th>Now</th><th title="Expected wins from the remaining games: the sum of the weekly percentages">Exp. wins left</th><th title="Current record plus expected wins">Projected final</th><th title="Chance of finishing in the playoff field, from 3,000 simulated finishes">Playoffs</th><th title="Likely best to worst finish (10th to 90th percentile)">Range</th>${head}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="pr-foot">Projected final = current record + the sum of each week's win probability. Seeds and playoff odds come from 3,000 simulated finishes (wins first, points for as tiebreak), so a team's seed reflects how those weekly odds add up. Every team is assumed to start its best projected lineup, with byes and IR excluded.${o.anyEst ? ' * = projections not yet published for that week; latest known values used.' : ''}</div>
+  </div>`;
+}
+
 function renderLeagueDetail() {
+  if (ldBoardMode === 'race') {
+    renderLeagueDetailRace();
+    renderWaiverWire();
+    return;
+  }
   if (ldBoardMode === 'weekly') {
     renderLeagueDetailWeekly();
     // The sidebar used to be drawn only by the Season path, so Weekly mode left it blank
@@ -5051,6 +5130,14 @@ async function computeOutlook(lg) {
   ids.forEach(id => { const c = rec(rosters.find(r => r.roster_id === id));
                       total[id] = { curW: c.w + 0.5 * c.t, curL: c.l + 0.5 * c.t, pf: c.pf, likely: 0, exp: 0, games: 0 }; });
   const weeks = [], simGames = [];         // simGames: [aId, bId|null, pA]
+  // Every team's week-by-week record of the same calculation (for the league-wide Playoff race view).
+  const nameOf = id => {
+    const r = rosters.find(x => x.roster_id === id), u = (users || []).find(x => x.user_id === r?.owner_id);
+    return u?.metadata?.team_name || u?.display_name || `Team ${id}`;
+  };
+  const teamWk = {};                       // id → { w → { w, opp, p, pMed } }
+  const wkEntry = (id, w) => ((teamWk[id] ||= {})[w] ||= { w, opp: null, p: null, pMed: null });
+  const weekFlags = {};                    // w → { est, live, byeKnown }
   let lastKnown = {};                      // newest projection seen per player, for weeks not yet published
   try {                                    // seed from the week before, so players on bye in the first week still have a value
     lastKnown = adjustProjectionsForLeague(lg, await fetchWeekProjections(season, startWk - 1, scoringKey, lg)) || {};
@@ -5095,6 +5182,8 @@ async function computeOutlook(lg) {
       const sd = Math.sqrt(a.sd * a.sd + b.sd * b.sd);
       const pA = sd > 0 ? normalCdf((a.mean - b.mean) / sd) : (a.mean > b.mean ? 1 : a.mean < b.mean ? 0 : 0.5);
       simGames.push([r.roster_id, other.roster_id, pA]);
+      Object.assign(wkEntry(r.roster_id, w),     { opp: nameOf(other.roster_id), p: pA });
+      Object.assign(wkEntry(other.roster_id, w), { opp: nameOf(r.roster_id),     p: 1 - pA });
       [[r.roster_id, pA], [other.roster_id, 1 - pA]].forEach(([id, p]) => {
         total[id].exp += p; total[id].games++; if (p >= 0.5) total[id].likely++;
       });
@@ -5113,10 +5202,12 @@ async function computeOutlook(lg) {
         const p = sd > 0 ? normalCdf((d.mean - medMean) / sd) : (d.mean > medMean ? 1 : 0);
         simGames.push([id, null, p]);
         total[id].exp += p; total[id].games++; if (p >= 0.5) total[id].likely++;
+        wkEntry(id, w).pMed = p;
         if (id === mine.roster_id) info.pMed = p;
       });
     }
     ids.forEach(id => { total[id].pf += dist[id].mean; });
+    weekFlags[w] = { est, live: weekLive, byeKnown: !!playing };
     weeks.push(info);
   }
 
@@ -5124,6 +5215,7 @@ async function computeOutlook(lg) {
   const nPlayoff = ss.playoff_teams || 6;
   let made = 0;
   const seeds = [];
+  const seedCnt = {}; ids.forEach(id => { seedCnt[id] = new Array(ids.length + 2).fill(0); });
   const pow2 = 2 ** Math.ceil(Math.log2(Math.max(2, nPlayoff)));
   const byes = pow2 - nPlayoff;          // 6 teams -> 2 byes, 7 -> 1, 4 or 8 -> none
   for (let i = 0; i < OUTLOOK_SIMS; i++) {
@@ -5136,18 +5228,44 @@ async function computeOutlook(lg) {
     const idx = order.indexOf(mine.roster_id);
     if (idx < nPlayoff) made++;
     seeds.push(idx + 1);
+    order.forEach((id, i) => { seedCnt[id][i + 1]++; });
   }
-  const prob = made / OUTLOOK_SIMS;
+  const prob = made / OUTLOOK_SIMS;   // same figure as teams[mine].prob
 
   // Seed from the same simulations as the odds, so the two can never disagree: the median finish,
   // with the 10th-90th percentile as the range. Ranked by wins; points-for only breaks ties.
-  seeds.sort((x, y) => x - y);
-  const q = f => seeds[Math.min(seeds.length - 1, Math.floor(f * seeds.length))];
-  const seed = q(0.5), seedLo = q(0.1), seedHi = q(0.9);
-  const byeProb = byes > 0 ? seeds.filter(x => x <= byes).length / seeds.length : 0;
+  // Every team gets the same treatment, then the league is ranked once so seeds are unique (1..N):
+  // by median finish, then average finish. Your own pill uses this same ranking.
+  const stat = {};
+  ids.forEach(id => {
+    const cnt = seedCnt[id], n = OUTLOOK_SIMS;
+    let cum = 0, med = null, lo = null, hi = null, mean = 0, madeN = 0, byeN = 0;
+    for (let s = 1; s <= ids.length; s++) {
+      cum += cnt[s]; mean += s * cnt[s];
+      if (s <= nPlayoff) madeN += cnt[s];
+      if (s <= byes) byeN += cnt[s];
+      if (lo == null && cum >= 0.1 * n) lo = s;
+      if (med == null && cum >= 0.5 * n) med = s;
+      if (hi == null && cum >= 0.9 * n) hi = s;
+    }
+    stat[id] = { med, lo, hi, mean: mean / n, prob: madeN / n, byeProb: byes > 0 ? byeN / n : 0 };
+  });
+  const ranked = [...ids].sort((x, y) => (stat[x].med - stat[y].med) || (stat[x].mean - stat[y].mean));
+  const seedOf = {}; ranked.forEach((id, i) => { seedOf[id] = i + 1; });
+  const teams = ranked.map(id => {
+    const t = total[id], st = stat[id], wk = Object.values(teamWk[id] || {}).sort((a, b) => a.w - b.w);
+    return {
+      id, name: nameOf(id), mine: id === mine.roster_id, seed: seedOf[id], seedLo: st.lo, seedHi: st.hi,
+      prob: st.prob, byeProb: st.byeProb, cur: { w: t.curW, l: t.curL }, exp: t.exp, likely: t.likely, games: t.games,
+      finalW: t.curW + t.exp, finalL: t.curL + (t.games - t.exp), weeks: wk,
+    };
+  });
+  const seed = seedOf[mine.roster_id], seedLo = stat[mine.roster_id].lo, seedHi = stat[mine.roster_id].hi;
+  const byeProb = stat[mine.roster_id].byeProb;
   const me = total[mine.roster_id];
   const gamesLeft = me.games;
   return {
+    teams, weekFlags,
     at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
     projW: me.curW + me.likely, projL: me.curL + (gamesLeft - me.likely),
@@ -5164,7 +5282,10 @@ function ensureOutlook(lg) {
   computeOutlook(lg)
     .then(res => { _outlookCache[lid] = { at: Date.now(), ...res }; })
     .catch(e => { console.error('[Outlook]', lg.name, e); _outlookCache[lid] = { at: Date.now(), skip: 'Could not load' }; })
-    .finally(() => { delete _outlookPending[lid]; rebuildSummaryBar('ls'); rebuildSummaryBar('ws'); });
+    .finally(() => {
+      delete _outlookPending[lid]; rebuildSummaryBar('ls'); rebuildSummaryBar('ws');
+      if (ldBoardMode === 'race' && leagueMeta?.league_id === lid) renderLeagueDetail();   // race view open: refresh it
+    });
   return hit || null;
 }
 
