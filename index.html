@@ -1014,7 +1014,8 @@ body {
 .po-box.none { background:#111827; border-color:#1e2530; color:#4b5563; }
 .po-chip { font-size:11px; font-weight:700; border:1px solid; border-radius:10px; padding:2px 9px; cursor:pointer; white-space:nowrap; font-family:inherit; }
 .po-chip:hover { filter:brightness(1.25); }
-.po-sub { font-size:10px; color:#6b7280; margin-top:3px; white-space:nowrap; }
+.po-sub { font-size:12px; line-height:1.4; color:#a3aec2; margin-top:4px; white-space:nowrap; }
+.po-status .po-sub { white-space:normal; }
 .summary-bar tr.po-detail td { background:#0a0e14; padding:8px 12px; }
 .po-strip { display:flex; flex-wrap:wrap; gap:6px; }
 .po-wk { font-size:10px; color:#9ca3af; background:#111827; border:1px solid #1e2530; border-radius:6px; padding:3px 8px; }
@@ -5201,13 +5202,14 @@ function buildOutlookStatusCell(lg) {
   if (!o) return `<td class="sb-loading">Projecting…</td>`;
   if (o.skip) return `<td class="sb-loading" title="${escHtml(o.skip)}">—</td>`;
   const rec = o.noGames ? `final ${fmtRec(o.cur.w, o.cur.l)}` : `proj ${fmtRec(o.projW, o.projL)}`;
-  const range = o.seedLo === o.seedHi ? `#${o.seed}` : `#${o.seed} (#${o.seedLo}–#${o.seedHi})`;
+  const range = `#${o.seed}`;
+  const rangeTip = o.seedLo === o.seedHi ? '' : ` Likely range: #${o.seedLo} to #${o.seedHi}.`;
   const hasBye = o.byes > 0 && o.seed <= o.byes;
   const byePill = hasBye ? `<span class="po-bye" title="Projected top-${o.byes} seed: first-round bye (week 15 off)">★ BYE</span>` : '';
   const byeOdds = o.byes > 0 && o.byeProb >= 0.05
     ? ` · <span style="color:#e6b422">${outlookPctText(o.byeProb)} bye</span>` : '';
   return `<td class="po-status" title="Updated ${new Date(o.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}${o.live ? ' · games in progress, refreshes every 5 minutes' : ''}"><span class="po-chip${hasBye ? ' po-gold' : ''}" style="color:${o.tier.color};border-color:${o.tier.color};background:#0d1117"
-      title="Status comes from projected seed (top ${Math.ceil(o.nPlayoff / 2)} = Contender, rest of the top ${o.nPlayoff} = In the mix); outside the playoffs it comes from the odds.">${o.tier.label} · seed ${range}${byePill}</span>
+      title="Status comes from projected seed (top ${Math.ceil(o.nPlayoff / 2)} = Contender, rest of the top ${o.nPlayoff} = In the mix); outside the playoffs it comes from the odds.${rangeTip}">${o.tier.label} · seed ${range}${byePill}</span>
     <div class="po-sub"><b style="color:#cbd5e1">${outlookPctText(o.prob)}</b> to make playoffs (top ${o.nPlayoff}/${o.nTeams})${byeOdds} · ${rec}</div></td>`;
 }
 
