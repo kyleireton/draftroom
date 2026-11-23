@@ -193,6 +193,7 @@ body {
 .pr-seedbadge { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border:2px solid; border-radius:50%; font-weight:800; font-size:13px; }
 .pr-team { color:#e2e8f0; font-weight:600; white-space:nowrap; }
 .pr-you { font-size:9px; font-weight:800; color:#93c5fd; border:1px solid #3b82f6; border-radius:8px; padding:0 5px; margin-left:4px; text-transform:uppercase; }
+.pr-user { font-size:11px; font-weight:500; color:#8b97ad; margin-top:1px; }
 .pr-num { text-align:center; color:#cbd5e1; white-space:nowrap; }
 .pr-final { font-weight:700; color:#f1f5f9; }
 .pr-wk { text-align:center; padding:4px 3px !important; }
@@ -3918,10 +3919,10 @@ function renderLeagueDetailRace() {
     const range = t.seedLo === t.seedHi ? `#${t.seed}` : `#${t.seedLo}–#${t.seedHi}`;
     return `<tr class="${t.mine ? 'pr-mine' : ''}${bye ? ' pr-bye' : ''}${t.seed === o.nPlayoff ? ' pr-cut' : ''}">
       <td class="pr-seed"><span class="pr-seedbadge" style="border-color:${sc};color:${sc}">${t.seed}</span></td>
-      <td class="pr-team">${escHtml(t.name)}${t.mine ? ' <span class="pr-you">you</span>' : ''}${bye ? ' <span class="po-bye">★ BYE</span>' : ''}</td>
+      <td class="pr-team">${escHtml(t.name)}${t.mine ? ' <span class="pr-you">you</span>' : ''}${bye ? ' <span class="po-bye">★ BYE</span>' : ''}${t.user && t.user !== t.name ? `<div class="pr-user">@${escHtml(t.user)}</div>` : ''}</td>
       <td class="pr-num">${fmtRec(t.cur.w, t.cur.l)}</td>
       <td class="pr-num" title="Sum of the weekly win probabilities shown to the right">+${t.exp.toFixed(1)} <span class="pr-dim">of ${t.games}</span></td>
-      <td class="pr-num pr-final">${t.finalW.toFixed(1)}–${t.finalL.toFixed(1)}</td>
+      <td class="pr-num pr-final" title="${t.finalW.toFixed(1)}–${t.finalL.toFixed(1)} before rounding">${Math.round(t.finalW)}–${Math.round(t.cur.w + t.cur.l + t.games) - Math.round(t.finalW)}</td>
       <td class="pr-num"><b style="color:${sc}">${outlookPctText(t.prob)}</b>${o.byes > 0 && t.byeProb >= 0.05 ? `<div class="pr-dim" style="color:#e6b422">${outlookPctText(t.byeProb)} bye</div>` : ''}</td>
       <td class="pr-num pr-dim">${range}</td>
       ${cells}
@@ -5135,6 +5136,10 @@ async function computeOutlook(lg) {
     const r = rosters.find(x => x.roster_id === id), u = (users || []).find(x => x.user_id === r?.owner_id);
     return u?.metadata?.team_name || u?.display_name || `Team ${id}`;
   };
+  const userOf = id => {                   // the manager's Sleeper username, shown under the team name
+    const r = rosters.find(x => x.roster_id === id), u = (users || []).find(x => x.user_id === r?.owner_id);
+    return u?.display_name || u?.username || '';
+  };
   const teamWk = {};                       // id → { w → { w, opp, p, pMed } }
   const wkEntry = (id, w) => ((teamWk[id] ||= {})[w] ||= { w, opp: null, p: null, pMed: null });
   const weekFlags = {};                    // w → { est, live, byeKnown }
@@ -5255,7 +5260,7 @@ async function computeOutlook(lg) {
   const teams = ranked.map(id => {
     const t = total[id], st = stat[id], wk = Object.values(teamWk[id] || {}).sort((a, b) => a.w - b.w);
     return {
-      id, name: nameOf(id), mine: id === mine.roster_id, seed: seedOf[id], seedLo: st.lo, seedHi: st.hi,
+      id, name: nameOf(id), user: userOf(id), mine: id === mine.roster_id, seed: seedOf[id], seedLo: st.lo, seedHi: st.hi,
       prob: st.prob, byeProb: st.byeProb, cur: { w: t.curW, l: t.curL }, exp: t.exp, likely: t.likely, games: t.games,
       finalW: t.curW + t.exp, finalL: t.curL + (t.games - t.exp), weeks: wk,
     };
@@ -5268,7 +5273,8 @@ async function computeOutlook(lg) {
     teams, weekFlags,
     at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
-    projW: me.curW + me.likely, projL: me.curL + (gamesLeft - me.likely),
+    // Whole-number projected record: current wins + expected wins, rounded (.5 and up rounds up).
+    projW: Math.round(me.curW + me.exp), projL: Math.round(me.curW + me.curL + gamesLeft) - Math.round(me.curW + me.exp),
     live: weeks.some(x => x.live),
     seed, seedLo, seedHi, byes, byeProb, weeks, anyEst: weeks.some(x => x.est), noGames: !weeks.length,
   };
