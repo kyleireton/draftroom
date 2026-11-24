@@ -4072,7 +4072,7 @@ function renderLeagueDetailRace() {
   }
 
   grid.innerHTML = `<div class="pr-wrap">
-    <div class="pr-title">Playoff race <span class="pr-dim">· top ${o.nPlayoff} of ${o.nTeams} qualify${o.byes > 0 ? ` · top ${o.byes} get a week-15 bye` : ''}${o.median ? ' · median league: each week counts two games' : ''}</span></div>
+    <div class="pr-title">Playoff race <span class="pr-dim">· top ${o.nPlayoff} of ${o.nTeams} qualify${o.byes > 0 ? ` · top ${o.byes} get a week-15 bye` : ''}${o.median ? ' · median league: each week counts two games' : ''}${o.lockedWk ? ` · week ${o.lockedWk} final and counted` : ''}</span></div>
     <table class="pr-table">
       <thead><tr><th>Seed</th><th style="text-align:left">Team</th><th>Now</th><th title="Expected wins from the remaining games: the sum of the weekly percentages">Exp. wins left</th><th title="Current record plus expected wins">Projected final</th><th title="Chance of finishing in the playoff field, from 3,000 simulated finishes">Playoffs</th>${divHead}<th title="Likely best to worst finish (10th to 90th percentile)">Range</th>${head}</tr></thead>
       <tbody>${rows}</tbody>
@@ -5363,6 +5363,40 @@ async function computeOutlook(lg) {
   const wkEntry = (id, w) => ((teamWk[id] ||= {})[w] ||= { w, opp: null, p: null, pMed: null });
   const weekFlags = {};                    // w → { est, live, byeKnown }
   let lastKnown = {};                      // newest projection seen per player, for weeks not yet published
+  // Lock in a finished week. Sleeper only adds a week to the standings after it closes, so until then the first
+  // unrecorded week is still "open". Once its games are over (all final, or well past the last kickoff) it is
+  // settled from the real scores: wins, losses, points for, head-to-head and the median game all come from
+  // what actually happened, and the projection starts the week after.
+  let firstWk = startWk, lockedWk = null;
+  try {
+    const sch = await fetchWeekKickoffs(startWk, season);
+    const kos = Object.values(sch?.map || {}), sts = Object.values(sch?.states || {});
+    const over = kos.length && ((sts.length && sts.every(x => x === 'post')) || Date.now() > Math.max(...kos) + 4 * 3600e3);
+    const rows = over && startWk <= OUTLOOK_END_WEEK ? await outlookMatchups(lid, startWk, true) : [];
+    if (rows.some(r => Number(r.points) > 0)) {
+      const pts = id => Number(rows.find(r => r.roster_id === id)?.points) || 0;
+      const win = id => { total[id].curW++; }, lose = id => { total[id].curL++; };
+      const half = id => { total[id].curW += 0.5; total[id].curL += 0.5; };
+      const seen = new Set();
+      rows.forEach(r => {
+        const o = rows.find(x => x.roster_id !== r.roster_id && x.matchup_id === r.matchup_id);
+        if (r.matchup_id == null || !o || seen.has(r.roster_id)) return;
+        seen.add(r.roster_id); seen.add(o.roster_id);
+        const a = pts(r.roster_id), b = pts(o.roster_id), A = r.roster_id, B = o.roster_id;
+        if (a > b) { win(A); lose(B); h2hBase[A][B] = (h2hBase[A][B] || 0) + 1; }
+        else if (b > a) { win(B); lose(A); h2hBase[B][A] = (h2hBase[B][A] || 0) + 1; }
+        else { half(A); half(B); h2hBase[A][B] = (h2hBase[A][B] || 0) + 0.5; h2hBase[B][A] = (h2hBase[B][A] || 0) + 0.5; }
+      });
+      if (median) {                                    // the extra game against the league median
+        const sorted = ids.map(pts).sort((x, y) => x - y), n = sorted.length;
+        const med = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+        ids.forEach(id => { const v = pts(id); if (v > med) win(id); else if (v < med) lose(id); else half(id); });
+      }
+      ids.forEach(id => { total[id].pf += pts(id); });
+      firstWk = startWk + 1; lockedWk = startWk;
+    }
+  } catch(_) {}
+
   // Healthy baseline per player: average of his positive projections over the last six weeks. The feed zeroes
   // players who are out, so this is what a player returning from injury is assumed to score.
   const baseline = {}, bCnt = {};
@@ -5378,7 +5412,7 @@ async function computeOutlook(lg) {
     lastKnown = { ...(adjustProjectionsForLeague(lg, await fetchWeekProjections(season, startWk - 1, scoringKey, lg)) || {}) };
   } catch(_) {}
 
-  for (let w = startWk; w <= OUTLOOK_END_WEEK; w++) {
+  for (let w = firstWk; w <= OUTLOOK_END_WEEK; w++) {
     const rows = await outlookMatchups(lid, w, w === startWk);
     let proj = adjustProjectionsForLeague(lg, await fetchWeekProjections(season, w, scoringKey, lg));
     let est = false;
@@ -5616,12 +5650,12 @@ async function computeOutlook(lg) {
   const me = total[mine.roster_id];
   const gamesLeft = me.games;
   return {
-    startWk,
+    startWk: firstWk, lockedWk,
     injured: (mine.players || []).filter(pid => (OUTLOOK_MISS[outlookStatus(pid)] || _retWeeks[pid] != null) && (baseline[pid] || lastKnown[pid] || 0) >= 5)
       .map(pid => ({ pid, name: sleeperFullName(pid, sleeperById[pid]) || pid, status: outlookStatus(pid), def: startWk + (OUTLOOK_MISS[outlookStatus(pid)] || 0) })),
     teams, weekFlags, hasDiv, worst, h2h: hasDiv ? h2hBase : null, pf: pfProj,
     divisions: divInfo.map(d => ({ name: d.name, order: d.order.map(id => ({ id, name: nameOf(id) })) })),
-    at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
+    at: Date.now(), startWk: firstWk, lockedWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
     // Whole-number projected record: current wins + expected wins, rounded (.5 and up rounds up).
     projW: Math.round(me.curW + me.exp), projL: Math.round(me.curW + me.curL + gamesLeft) - Math.round(me.curW + me.exp),
