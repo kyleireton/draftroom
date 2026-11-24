@@ -203,11 +203,7 @@ body {
 .pr-divrow.mine { color:#93c5fd; }
 .pr-divpos { position:absolute; left:0; width:18px; text-align:center; font-size:11px; font-weight:800; color:#64748b; }
 .pr-divp { float:right; font-size:12px; color:#cbd5e1; }
-.pr-game { padding:7px 0; border-bottom:1px solid #1a212c; font-size:13px; color:#e2e8f0; }
-.pr-btns { display:flex; gap:4px; flex-wrap:wrap; margin:4px 0; }
-.pr-btn { background:#141a24; border:1px solid #2d3748; color:#94a3b8; font-size:11px; font-weight:700; padding:3px 9px; border-radius:6px; cursor:pointer; font-family:inherit; }
-.pr-btn:hover { color:#e2e8f0; }
-.pr-btn.on { background:#1e3a5f; color:#dbeafe; border-color:#3b82f6; }
+.pr-sel { margin-left:8px; background:#141a24; border:1px solid #2d3748; color:#cbd5e1; font-size:12px; border-radius:6px; padding:2px 6px; }
 .pr-why { font-size:12px; color:#b6c2d6; margin-top:2px; line-height:1.4; }
 .pr-tie { font-size:11px; color:#d6a04c; margin-top:1px; }
 .pr-wccut { border-bottom:2px dashed #b45309; padding-bottom:5px; margin-bottom:3px; }
@@ -3904,23 +3900,12 @@ function renderLeagueDetailWeekly() {
   bn.style.display = '';
 }
 
-// What-if state per league: pinned game results and the odds they give. Pins index into the engine's game list.
-const _raceWI = {};
-function rcRun(lid) {
-  const o = _outlookCache[lid], st = _raceWI[lid];
-  st.res = Object.keys(st.pins).length ? o.model.run(st.pins) : null;
-  renderLeagueDetail();
-}
-function rcPreset(lid, p) {
-  const o = _outlookCache[lid];
-  _raceWI[lid] = { pins: p === 'base' ? {} : o.model.pins(p === 'win'), preset: p, res: null };
-  rcRun(lid);
-}
-function rcPin(lid, gi, v) {
-  const st = _raceWI[lid];
-  if (v) st.pins[gi] = v; else delete st.pins[gi];
-  if (st.preset !== 'lose') st.preset = 'custom';       // 'lose' keeps its leverage figures while you add pins on top
-  rcRun(lid);
+// Change when an injured player is assumed back; applies to every league he is on, then recomputes.
+function rcRet(pid, v) {
+  if (v === 'd') delete _retWeeks[pid]; else _retWeeks[pid] = +v;
+  try { localStorage.setItem('dr_ret_weeks', JSON.stringify(_retWeeks)); } catch(_) {}
+  Object.keys(_outlookCache).forEach(k => delete _outlookCache[k]);
+  rebuildSummaryBar('ls'); rebuildSummaryBar('ws'); renderLeagueDetail();
 }
 
 // ── Playoff race: every team's projected finish, from the same simulation as the summary table ──
@@ -4072,25 +4057,18 @@ function renderLeagueDetailRace() {
     </div>`;
   }
 
-  // Week by week: the games that move your odds, with buttons to pin a result and see the new odds.
-  let guidePanel = '';
-  if (o.model && o.lev) {
-    const lid = leagueMeta.league_id, st = _raceWI[lid] || (_raceWI[lid] = { pins: {}, preset: 'base', res: null });
-    const lev = st.preset === 'lose' ? o.lev.worst : o.lev.base;
-    const btn = (gi, v, t, cls = '') => `<button class="pr-btn${(st.pins[gi] || '') === v ? ' on' : ''}${cls}" onclick="rcPin('${lid}',${gi},'${v}')">${escHtml(t)}</button>`;
-    const pre = (p, t) => `<button class="pr-btn${st.preset === p ? ' on' : ''}" onclick="rcPreset('${lid}','${p}')">${t}</button>`;
-    const weeks = [...new Set(lev.map(g => g.w))].sort((a, b) => a - b);
-    const body = weeks.map(w => `<div class="pr-divname" style="margin-top:10px">Week ${w}</div>` + lev.filter(g => g.w === w)
-      .sort((x, y) => y.d - x.d).slice(0, 5).map(g => `<div class="pr-game"><div><b>${escHtml(g.a)}</b> vs <b>${escHtml(g.b)}</b> <span class="pr-dim">· ${Math.round(g.pA * 100)}% / ${100 - Math.round(g.pA * 100)}%</span></div>
-        <div class="pr-btns">${btn(g.i, 'a', g.mine && g.a === 'You' ? 'You win' : g.a + ' wins')}${btn(g.i, '', 'simulate')}${btn(g.i, 'b', g.b === 'the median' ? 'You lose' : (g.mine && g.b === 'You' ? 'You win' : g.b + ' wins'))}</div>
-        <div class="pr-dim">your playoff odds: <b style="color:#cbd5e1">${outlookPctText(g.pa)}</b> if ${escHtml(g.a)} wins · <b style="color:#cbd5e1">${outlookPctText(g.pb)}</b> if ${escHtml(g.b)} ${g.b === 'the median' ? 'is higher' : 'wins'}</div></div>`).join('')).join('');
-    const r = st.res, n = Object.keys(st.pins).length;
-    guidePanel = `<div class="pr-panel pr-worst"><div class="pr-title" style="font-size:14px">Week by week: what moves your odds</div>
-      <div class="pr-why" style="font-size:13px">Games ranked by how much they swing your playoff chance. Pin results to build a scenario; the odds update right away.</div>
-      <div class="pr-btns" style="margin:8px 0">${pre('base', 'Normal')}${pre('lose', 'I lose out')}${pre('win', 'I win out')}</div>
-      <div class="pr-why" style="font-size:14px">${r ? `With ${n} result${n === 1 ? '' : 's'} pinned: <b>${outlookPctText(r.prob)}</b> to make the playoffs${r.seed ? `, most likely seed #${r.seed}` : ''}${r.divWin != null && r.divWin >= 0.02 ? `, ${outlookPctText(r.divWin)} to win the division` : ''}.` : `No results pinned: <b>${outlookPctText(o.prob)}</b> to make the playoffs.`}</div>
-      ${body || '<div class="pr-dim" style="margin-top:8px">No remaining game moves your odds by 3 points or more.</div>'}
-      <div class="pr-dim" style="margin-top:8px">The percentages under each game are measured before any pins${st.preset === 'lose' ? ', assuming you lose out' : ''}.</div></div>`;
+  // Lineup assumptions: injured players on your roster and the week each is assumed back.
+  let injPanel = '';
+  if (o.injured?.length) {
+    const rows = o.injured.map(p => {
+      const cur = _retWeeks[p.pid], weeks = [];
+      for (let w = o.startWk; w <= 14; w++) weeks.push(w);
+      return `<div class="pr-divrow" style="padding-left:0">${escHtml(p.name)} <span class="pr-dim">${escHtml(p.status || 'flagged')}</span>
+        <select class="pr-sel" onchange="rcRet('${p.pid}', this.value)"><option value="d"${cur == null ? ' selected' : ''}>Default: ${p.def > 14 ? 'out for the season' : 'back week ' + p.def}</option>
+        ${weeks.map(w => `<option value="${w}"${cur === w ? ' selected' : ''}>Back week ${w}</option>`).join('')}<option value="99"${cur === 99 ? ' selected' : ''}>Out for the season</option></select></div>`;
+    }).join('');
+    injPanel = `<div class="pr-panel"><div class="pr-title" style="font-size:13px">Lineup assumptions: injured players <span class="pr-dim">· when each is assumed back</span></div>${rows}
+      <div class="pr-dim" style="margin-top:6px">Sleeper gives no return dates. Defaults: IR, PUP or suspended = 4 games, Out = this week and next, Doubtful = this week. Byes are always skipped. Your choice applies in every league he is on.</div></div>`;
   }
 
   grid.innerHTML = `<div class="pr-wrap">
@@ -4098,7 +4076,7 @@ function renderLeagueDetailRace() {
     <table class="pr-table">
       <thead><tr><th>Seed</th><th style="text-align:left">Team</th><th>Now</th><th title="Expected wins from the remaining games: the sum of the weekly percentages">Exp. wins left</th><th title="Current record plus expected wins">Projected final</th><th title="Chance of finishing in the playoff field, from 3,000 simulated finishes">Playoffs</th>${divHead}<th title="Likely best to worst finish (10th to 90th percentile)">Range</th>${head}</tr></thead>
       <tbody>${rows}</tbody>
-    </table>${divPanel}${worstPanel ? `<div class="pr-panels">${worstPanel}</div>` : ''}${guidePanel ? `<div class="pr-panels">${guidePanel}</div>` : ''}
+    </table>${divPanel}${worstPanel ? `<div class="pr-panels">${worstPanel}</div>` : ''}${injPanel ? `<div class="pr-panels">${injPanel}</div>` : ''}
     <div class="pr-foot">Projected final = current record + the sum of each week's win probability. Seeds and playoff odds come from 3,000 simulated finishes (wins first, points for as tiebreak), so a team's seed reflects how those weekly odds add up. Every team is assumed to start its best projected lineup, with byes and IR excluded.${o.anyEst ? ' * = projections not yet published for that week; latest known values used.' : ''}</div>
   </div>`;
 }
@@ -5163,35 +5141,44 @@ function outlookTier(seed, prob, nPlayoff) {
   return                                      { key: 'rebuild',   label: 'Rebuilding',  color: '#94a3b8' };
 }
 
+// Games a player is assumed to miss from now, by injury status. Sleeper gives no return dates, so these are
+// the usual minimums (IR / PUP / suspension: 4 games; Out: this week and next; Doubtful: this week), and the
+// user can override a player's return week in the Playoff race view.
+const OUTLOOK_MISS = { OUT: 2, DOUBTFUL: 1, COV: 1, IR: 4, PUP: 4, SUS: 4, SUSPENDED: 4, NA: 4 };
+let _retWeeks = (() => { try { return JSON.parse(localStorage.getItem('dr_ret_weeks') || '{}'); } catch(_) { return {}; } })();
+const outlookStatus = pid => String(_sleeperRawPlayers?.[pid]?.injury_status || '').toUpperCase();
+
 function outlookBestLineup(pids, rosterPositions, proj, liveWeek, opts = {}) {
-  const { excl, playing, ref, locked = [], actualMap = null, skipSet = null } = opts;
-  // excl: IR/taxi slots · playing: NFL teams with a game · ref: map for naming
+  const { excl, playing, ref, locked = [], actualMap = null, skipSet = null, week = 0, startWk = 0, baseline = null } = opts;
+  // excl: taxi squad · playing: NFL teams with a game · ref: map for naming · week/startWk/baseline: injury returns
   // Live week: locked = started players pinned to their slot at their real score; actualMap = real scores
   // for played players (best ball counts them wherever they sit); skipSet = played players who can no longer be started.
   const KNOWN = new Set(['QB','RB','WR','TE','K','DEF']);
-  const BAD   = new Set(['IR','PUP','SUS','SUSPENDED','NA','COV']);
   const cands = [], byeOut = [], irOut = [];
   (pids || []).forEach(pid => {
     const raw = _sleeperRawPlayers?.[pid];
     const pos = raw?.position;
     if (!KNOWN.has(pos)) return;
-    const inj = String(raw?.injury_status || '').toUpperCase();
+    const inj = outlookStatus(pid);
     const label = () => sleeperFullName(pid, sleeperById[pid]) || pid;
-    // IR: in a reserve/taxi slot, or flagged IR/PUP/etc. — cannot be started.
-    if ((excl && excl.has(pid)) || BAD.has(inj)) {
+    if (excl && excl.has(pid)) return;                              // taxi squad
+    if (skipSet && skipSet.has(pid)) return;
+    if (actualMap && pid in actualMap) { cands.push({ pid, pos, proj: actualMap[pid], actual: actualMap[pid] }); return; }
+    // Injury: out until his return week (override, else the status default), then back in the pool.
+    const retWk = _retWeeks[pid] != null ? _retWeeks[pid] : startWk + (OUTLOOK_MISS[inj] || 0);
+    if (week < retWk) {
       if (pos !== 'K' && pos !== 'DEF' && (ref?.[pid] ?? proj[pid] ?? 0) >= 6) irOut.push(label());
       return;
     }
-    if (skipSet && skipSet.has(pid)) return;
-    if (actualMap && pid in actualMap) { cands.push({ pid, pos, proj: actualMap[pid], actual: actualMap[pid] }); return; }
-    if (liveWeek && inj === 'OUT') return;
     // Bye: this player's NFL team has no game that week.
     if (playing && pos !== 'DEF') {
       const team = lockTeamOfPid(pid);
       if (team && !playing.has(team)) { if ((ref?.[pid] ?? 0) >= 6) byeOut.push(label()); return; }
     }
     if (playing && pos === 'DEF' && !playing.has(lockTeamOfPid(pid))) return;
-    const v = proj[pid];
+    let v = proj[pid];
+    // Back from injury but the feed shows nothing for him (it zeroes players who are out): use his last healthy value.
+    if ((v == null || v <= 0) && baseline && (OUTLOOK_MISS[inj] || _retWeeks[pid] != null)) v = baseline[pid];
     if (v == null) return;                         // no projection
     cands.push({ pid, pos, proj: v });
   });
@@ -5293,21 +5280,6 @@ function outlookOrder(idList, wins, fut, h2h, pf) {
   return out;
 }
 
-// Leverage of each simulated game on your playoff odds: made-playoffs rate among sims where the first team won
-// versus where the second won. Keeps games that move you by 3 points or more, grouped by the caller.
-function outlookLeverage(games, samples, myId, handleOf) {
-  const lab = id => id === myId ? 'You' : handleOf(id);
-  const out = [];
-  games.forEach(([a, b, pA, w], i) => {
-    let n1 = 0, m1 = 0, n0 = 0, m0 = 0;
-    samples.forEach(s => { if (s.res[i]) { n1++; if (s.ok) m1++; } else { n0++; if (s.ok) m0++; } });
-    if (n1 < 30 || n0 < 30) return;
-    const pa = m1 / n1, pb = m0 / n0;
-    if (Math.abs(pa - pb) >= 0.03) out.push({ i, w, a: lab(a), b: b == null ? 'the median' : lab(b), pA, pa, pb, d: Math.abs(pa - pb), mine: a === myId || b === myId });
-  });
-  return out;
-}
-
 const _outlookPastCache = {};   // finished weeks never change, so these are kept for the session
 async function outlookPastMatchups(lid, week) {
   const key = lid + ':' + week;
@@ -5391,8 +5363,19 @@ async function computeOutlook(lg) {
   const wkEntry = (id, w) => ((teamWk[id] ||= {})[w] ||= { w, opp: null, p: null, pMed: null });
   const weekFlags = {};                    // w → { est, live, byeKnown }
   let lastKnown = {};                      // newest projection seen per player, for weeks not yet published
+  // Healthy baseline per player: average of his positive projections over the last six weeks. The feed zeroes
+  // players who are out, so this is what a player returning from injury is assumed to score.
+  const baseline = {}, bCnt = {};
+  for (let bw = Math.max(1, startWk - 6); bw < startWk; bw++) {
+    try {
+      Object.entries(adjustProjectionsForLeague(lg, await fetchWeekProjections(season, bw, scoringKey, lg)) || {}).forEach(([k, v]) => {
+        if (v > 0) { baseline[k] = (baseline[k] || 0) + v; bCnt[k] = (bCnt[k] || 0) + 1; }
+      });
+    } catch(_) {}
+  }
+  Object.keys(baseline).forEach(k => { baseline[k] = Math.round(baseline[k] / bCnt[k] * 10) / 10; });
   try {                                    // seed from the week before, so players on bye in the first week still have a value
-    lastKnown = adjustProjectionsForLeague(lg, await fetchWeekProjections(season, startWk - 1, scoringKey, lg)) || {};
+    lastKnown = { ...(adjustProjectionsForLeague(lg, await fetchWeekProjections(season, startWk - 1, scoringKey, lg)) || {}) };
   } catch(_) {}
 
   for (let w = startWk; w <= OUTLOOK_END_WEEK; w++) {
@@ -5400,7 +5383,7 @@ async function computeOutlook(lg) {
     let proj = adjustProjectionsForLeague(lg, await fetchWeekProjections(season, w, scoringKey, lg));
     let est = false;
     if (Object.keys(proj || {}).length < 100) { proj = lastKnown; est = true; }
-    else lastKnown = { ...lastKnown, ...proj };
+    else Object.entries(proj).forEach(([k, v]) => { if (v > 0 || lastKnown[k] == null) lastKnown[k] = v; });
     if (!Object.keys(proj).length) continue;
     // NFL schedule for that week: teams without a game are on bye.
     let sched = null;
@@ -5415,7 +5398,7 @@ async function computeOutlook(lg) {
       const liveCtx = w === startWk ? outlookLiveContext(row, r.players, rp, bestBall, sched) : null;
       if (liveCtx) weekLive = true;
       const st = outlookBestLineup(r.players, rp, proj, w === startWk,
-        { excl: new Set([...(r.reserve || []), ...(r.taxi || [])]), playing, ref: lastKnown, ...(liveCtx || {}) });
+        { excl: new Set(r.taxi || []), playing, ref: lastKnown, week: w, startWk, baseline, ...(liveCtx || {}) });
       dist[r.roster_id] = outlookDist(st, w);
       if (r.roster_id === mine.roster_id) { myBye = st.byeOut || []; myIr = st.irOut || []; }
     });
@@ -5478,10 +5461,8 @@ async function computeOutlook(lg) {
   const playSeason = (pins = {}) => {
     const wins = {}; ids.forEach(id => wins[id] = total[id].curW);
     const fut = {};                                   // head-to-head wins from the simulated games
-    const res = new Uint8Array(simGames.length);      // 1 where the first team won, for the leverage figures
     simGames.forEach(([a, b, pA], i) => {
       const aWon = pins[i] ? pins[i] === 'a' : Math.random() < pA;
-      res[i] = aWon ? 1 : 0;
       if (b == null) { if (aWon) wins[a]++; return; }
       if (aWon) { wins[a]++; fut[a + '|' + b] = (fut[a + '|' + b] || 0) + 1; }
       else      { wins[b]++; fut[b + '|' + a] = (fut[b + '|' + a] || 0) + 1; }
@@ -5500,18 +5481,16 @@ async function computeOutlook(lg) {
     } else {
       order = [...ids].sort((x, y) => (wins[y] - wins[x]) || (total[y].pf - total[x].pf));
     }
-    return { wins, fut, order, winners, res };
+    return { wins, fut, order, winners };
   };
   const myId = mine.roster_id;
   // Your own games, with the pins for "lose out" / "win out".
   const myGameIdx = simGames.map((g, i) => (g[0] === myId || g[1] === myId) ? i : -1).filter(i => i >= 0);
   const pinsFor = win => Object.fromEntries(myGameIdx.map(i => [i, (simGames[i][0] === myId) === win ? 'a' : 'b']));
-  const baseSamples = [], worstSamples = [];
   for (let i = 0; i < OUTLOOK_SIMS; i++) {
-    const { order, winners, res } = playSeason();
+    const { order, winners } = playSeason();
     winners.forEach(id => { divWinCnt[id]++; });
     const idx = order.indexOf(mine.roster_id);
-    baseSamples.push({ res, ok: idx < nPlayoff });
     if (idx < nPlayoff) made++;
     seeds.push(idx + 1);
     order.forEach((id, i) => { seedCnt[id][i + 1]++; });
@@ -5531,9 +5510,8 @@ async function computeOutlook(lg) {
     ids.forEach(id => { reach[id] = above[id] = tied[id] = ahead[id] = 0; });
     const pat = new Map();                              // "ids that reach your wins" → { n, made }
     for (let i = 0; i < OUTLOOK_SIMS; i++) {
-      const { wins, order, winners, res } = playSeason(losePins);
+      const { wins, order, winners } = playSeason(losePins);
       const idx = order.indexOf(myId), mw = wins[myId], ok = idx < nPlayoff;
-      worstSamples.push({ res, ok });
       if (ok) wMade++;
       if (winners.includes(myId)) wDiv++;
       wSeed[idx + 1]++;
@@ -5638,24 +5616,10 @@ async function computeOutlook(lg) {
   const me = total[mine.roster_id];
   const gamesLeft = me.games;
   return {
+    startWk,
+    injured: (mine.players || []).filter(pid => (OUTLOOK_MISS[outlookStatus(pid)] || _retWeeks[pid] != null) && (baseline[pid] || lastKnown[pid] || 0) >= 5)
+      .map(pid => ({ pid, name: sleeperFullName(pid, sleeperById[pid]) || pid, status: outlookStatus(pid), def: startWk + (OUTLOOK_MISS[outlookStatus(pid)] || 0) })),
     teams, weekFlags, hasDiv, worst, h2h: hasDiv ? h2hBase : null, pf: pfProj,
-    // Week-by-week guide: for each game, your playoff odds if the first team wins vs the second (from the sims
-    // already run), plus a re-run function so the page can pin results ("what if") and recompute.
-    lev: { base: outlookLeverage(simGames, baseSamples, myId, handleOf), worst: outlookLeverage(simGames, worstSamples, myId, handleOf) },
-    model: {
-      mine: myGameIdx, pins: pinsFor,
-      run: pins => {
-        let ok = 0, dv = 0; const sd = new Array(ids.length + 2).fill(0);
-        for (let i = 0; i < OUTLOOK_SIMS; i++) {
-          const { order, winners } = playSeason(pins), k = order.indexOf(myId);
-          if (k < nPlayoff) ok++;
-          if (winners.includes(myId)) dv++;
-          sd[k + 1]++;
-        }
-        let seed = 1; for (let s = 1; s <= nPlayoff; s++) if (sd[s] > sd[seed]) seed = s;
-        return { prob: ok / OUTLOOK_SIMS, divWin: hasDiv ? dv / OUTLOOK_SIMS : null, seed: ok ? seed : null };
-      },
-    },
     divisions: divInfo.map(d => ({ name: d.name, order: d.order.map(id => ({ id, name: nameOf(id) })) })),
     at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
@@ -6430,7 +6394,12 @@ function scoreStatsForLeague(lg, pid, stats) {
   // Position-specific reception premiums (TEP etc.) when the feed doesn't break them out itself.
   const prem = { TE: 'bonus_rec_te', RB: 'bonus_rec_rb', WR: 'bonus_rec_wr' }[pos];
   if (prem && Number(ss[prem]) && stats[prem] == null && Number(stats.rec)) pts += Number(stats.rec) * Number(ss[prem]);
-  return used ? Math.round(pts * 10) / 10 : null;
+  if (!used) return null;
+  // Guard against a schema mismatch: if the league-scored total is wildly off Sleeper's own total for the same
+  // scoring type, trust Sleeper's number instead.
+  const base = stats[{ 1: 'pts_ppr', 0.5: 'pts_half_ppr', 0: 'pts_std' }[ss.rec]];
+  if (base >= 4 && (pts < 0.55 * base || pts > 1.8 * base)) return null;
+  return Math.round(pts * 10) / 10;
 }
 
 const _leagueProjCache = {};  // "season:week:league" → { map, at }
