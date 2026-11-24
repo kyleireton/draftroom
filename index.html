@@ -203,6 +203,7 @@ body {
 .pr-divrow.mine { color:#93c5fd; }
 .pr-divpos { position:absolute; left:0; width:18px; text-align:center; font-size:11px; font-weight:800; color:#64748b; }
 .pr-divp { float:right; font-size:12px; color:#cbd5e1; }
+.pr-why { font-size:12px; color:#b6c2d6; margin-top:2px; line-height:1.4; }
 .pr-tie { font-size:11px; color:#d6a04c; margin-top:1px; }
 .pr-wccut { border-bottom:2px dashed #b45309; padding-bottom:5px; margin-bottom:3px; }
 .pr-num { text-align:center; color:#cbd5e1; white-space:nowrap; }
@@ -3953,14 +3954,56 @@ function renderLeagueDetailRace() {
       t.tie.state === 'trails' ? `trails ${t.tie.vs} on head-to-head (${fmtRec(t.tie.w, t.tie.l)})` :
       t.tie.how === 'split' ? `split head-to-head with ${t.tie.vs}, so points for decides` :
       `no head-to-head yet with ${t.tie.vs}, so points for decides`;
+    const userLine = t => t.user && t.user !== t.name ? `<div class="pr-user">@${escHtml(t.user)}</div>` : '';
+    const projRec = t => {                                   // whole-number projected final record
+      const w = Math.round(t.finalW), g = Math.round(t.cur.w + t.cur.l + t.games);
+      return { w, l: g - w };
+    };
     const divRows = o.divisions.map(d => `<div class="pr-div"><div class="pr-divname">${escHtml(d.name)}</div>${d.order.map((m, i) => {
       const t = byId[m.id]; if (!t) return '';
-      return `<div class="pr-divrow${t.mine ? ' mine' : ''}"><span class="pr-divpos">${i + 1}</span>${escHtml(t.name)} <span class="pr-dim">${fmtRec(t.cur.w, t.cur.l)}</span>`
-           + `<span class="pr-divp">${outlookPctText(t.pDiv)} to win it</span>${t.tie ? `<div class="pr-tie">${tieTxt(t)}</div>` : ''}</div>`;
+      const p = projRec(t);
+      return `<div class="pr-divrow${t.mine ? ' mine' : ''}"><span class="pr-divpos">${i + 1}</span>${escHtml(t.name)}`
+           + `<span class="pr-divp">${outlookPctText(t.pDiv)} to win it</span>${userLine(t)}`
+           + `<div class="pr-dim">Now ${fmtRec(t.cur.w, t.cur.l)} → projected ${fmtRec(p.w, p.l)}</div>`
+           + `${t.tie ? `<div class="pr-tie">${tieTxt(t)}</div>` : ''}</div>`;
     }).join('')}</div>`).join('');
+
+    // Wildcard race: everyone except the team most likely to win each division, in projected order.
     const wcSpots = o.nPlayoff - o.divisions.length;
-    const wc = o.teams.filter(t => t.divRank !== 1).sort((a, b) => (b.pWild - a.pWild) || (a.seed - b.seed)).slice(0, wcSpots + 3);
-    const wcRows = wc.map((t, i) => `<div class="pr-divrow${t.mine ? ' mine' : ''}${i === wcSpots - 1 ? ' pr-wccut' : ''}"><span class="pr-divpos">${i + 1}</span>${escHtml(t.name)} <span class="pr-dim">${fmtRec(t.cur.w, t.cur.l)} · ${escHtml(t.divName || '')}</span><span class="pr-divp">${outlookPctText(t.pWild)} wildcard</span></div>`).join('');
+    const projWinners = new Set(o.divisions.map(d => d.order.map(m => byId[m.id]).filter(Boolean)
+      .sort((a, b) => (b.pDiv - a.pDiv) || (a.seed - b.seed))[0]?.id));
+    const wc = o.teams.filter(t => !projWinners.has(t.id)).sort((a, b) => a.seed - b.seed).slice(0, wcSpots + 3);
+    // One sentence on why this team sits where it does, set against its closest neighbour: the team just
+    // behind it if it is in a wildcard spot, the team just ahead if it is out.
+    const gm = n => `${n} game${n === 1 ? '' : 's'}`;
+    const whyText = (t, i) => {
+      const u = i < wcSpots ? wc[i + 1] : wc[i - 1];
+      if (!u) return '';
+      const a = projRec(t), b = projRec(u), inSpot = i < wcSpots, ahead = u === wc[i + 1];
+      const tag = inSpot ? 'in a wildcard spot' : 'outside the wildcard spots';
+      if (a.w !== b.w) {
+        const d = Math.abs(a.w - b.w);
+        const rel = `Projected ${fmtRec(a.w, a.l)}, ${gm(d)} ${a.w > b.w ? 'ahead of' : 'behind'} ${u.name} (${fmtRec(b.w, b.l)})`;
+        const expected = inSpot ? a.w > b.w : a.w < b.w;      // the record gap explains the order
+        return expected ? `${rel}, so ${tag}.`
+                        : `${rel}, but ranks ${inSpot ? 'ahead' : 'behind'} on the simulated finish (${outlookPctText(t.pWild)} vs ${outlookPctText(u.pWild)} wildcard odds).`;
+      }
+      // Same projected record: the tiebreakers decide.
+      const h = o.h2h?.[t.id]?.[u.id] || 0, hb = o.h2h?.[u.id]?.[t.id] || 0;
+      const pfDiff = Math.round((o.pf?.[t.id] || 0) - (o.pf?.[u.id] || 0));
+      const pf = pfDiff === 0 ? 'level on points for' : pfDiff > 0 ? `${pfDiff} points ahead on points for` : `${-pfDiff} points behind on points for`;
+      if (h > hb) return `Same projected record as ${u.name} (${fmtRec(a.w, a.l)}); holds the head-to-head tiebreaker (${fmtRec(h, hb)}), so ${tag}.`;
+      if (hb > h) return `Same projected record as ${u.name} (${fmtRec(a.w, a.l)}), but trails on head-to-head (${fmtRec(h, hb)}), so ${tag}${inSpot ? ' only if that tie breaks its way' : ''}.`;
+      if (h + hb > 0) return `Same projected record as ${u.name} (${fmtRec(a.w, a.l)}); head-to-head is split, so points for decides and it is ${pf}.`;
+      return `Same projected record as ${u.name} (${fmtRec(a.w, a.l)}); no head-to-head yet, so points for decides and it is ${pf}.`;
+    };
+    const wcRows = wc.map((t, i) => {
+      const p = projRec(t);
+      return `<div class="pr-divrow${t.mine ? ' mine' : ''}${i === wcSpots - 1 ? ' pr-wccut' : ''}"><span class="pr-divpos">${i + 1}</span>${escHtml(t.name)}`
+           + `<span class="pr-divp">${outlookPctText(t.pWild)} wildcard</span>${userLine(t)}`
+           + `<div class="pr-dim">Now ${fmtRec(t.cur.w, t.cur.l)} → projected ${fmtRec(p.w, p.l)} · ${escHtml(t.divName || '')}</div>`
+           + `<div class="pr-why">${escHtml(whyText(t, i))}</div></div>`;
+    }).join('');
     divPanel = `<div class="pr-panels"><div class="pr-panel"><div class="pr-title" style="font-size:13px">Division leaders</div>${divRows}</div>
       <div class="pr-panel"><div class="pr-title" style="font-size:13px">Wildcard race <span class="pr-dim">· ${wcSpots} spot${wcSpots === 1 ? '' : 's'} after the division winners</span></div>${wcRows}</div></div>`;
   }
@@ -5415,7 +5458,7 @@ async function computeOutlook(lg) {
   const me = total[mine.roster_id];
   const gamesLeft = me.games;
   return {
-    teams, weekFlags, hasDiv,
+    teams, weekFlags, hasDiv, h2h: hasDiv ? h2hBase : null, pf: pfProj,
     divisions: divInfo.map(d => ({ name: d.name, order: d.order.map(id => ({ id, name: nameOf(id) })) })),
     at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
