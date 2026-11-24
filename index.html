@@ -3932,7 +3932,11 @@ function renderLeagueDetailRace() {
       const h = winProbHue(x.p), pct = Math.round(x.p * 100);
       const med = o.median && x.pMed != null ? `<i>med ${Math.round(x.pMed * 100)}%</i>` : '';
       const opp = (x.opp || '?'), short = opp.length > 11 ? opp.slice(0, 10) + '…' : opp;
-      const tip = `Week ${w}: ${pct}% to beat ${opp}` + (o.median && x.pMed != null ? `\n${Math.round(x.pMed * 100)}% to beat the league median` : '');
+      const oppW = o.teams.find(q => q.id === x.oppId)?.weeks.find(q => q.w === w);
+      const outTxt = (e, who) => e ? [e.byeOut?.length ? `${who} on bye: ${e.byeOut.slice(0, 5).join(', ')}` : '', e.irOut?.length ? `${who} injured/out: ${e.irOut.slice(0, 5).join(', ')}` : ''].filter(Boolean).join('\n') : '';
+      const tip = `Week ${w}: ${pct}% to beat ${opp}` + (x.mean != null && oppW?.mean != null ? `\nProjected best lineups: ${Math.round(x.mean)} to ${Math.round(oppW.mean)}` : '')
+        + (outTxt(x, 'This team') ? '\n' + outTxt(x, 'This team') : '') + (outTxt(oppW, 'Opponent') ? '\n' + outTxt(oppW, 'Opponent') : '')
+        + (o.median && x.pMed != null ? `\n${Math.round(x.pMed * 100)}% to beat the league median` : '');
       return `<td class="pr-wk"><span class="po-box pr-box" title="${escHtml(tip)}" style="background:hsl(${h},55%,22%);border-color:hsl(${h},60%,36%);color:hsl(${h},75%,82%)"><b>${pct}%</b><i>vs ${escHtml(short)}</i>${med}</span></td>`;
     }).join('');
     const sc = outlookSeedColor(t.seed, o.nPlayoff);
@@ -5167,13 +5171,13 @@ function outlookBestLineup(pids, rosterPositions, proj, liveWeek, opts = {}) {
     // Injury: out until his return week (override, else the status default), then back in the pool.
     const retWk = _retWeeks[pid] != null ? _retWeeks[pid] : startWk + (OUTLOOK_MISS[inj] || 0);
     if (week < retWk) {
-      if (pos !== 'K' && pos !== 'DEF' && (ref?.[pid] ?? proj[pid] ?? 0) >= 6) irOut.push(label());
+      if (pos !== 'K' && pos !== 'DEF' && Math.max(ref?.[pid] || 0, baseline?.[pid] || 0, proj[pid] || 0) >= 6) irOut.push(label());
       return;
     }
     // Bye: this player's NFL team has no game that week.
     if (playing && pos !== 'DEF') {
       const team = lockTeamOfPid(pid);
-      if (team && !playing.has(team)) { if ((ref?.[pid] ?? 0) >= 6) byeOut.push(label()); return; }
+      if (team && !playing.has(team)) { if (Math.max(ref?.[pid] || 0, baseline?.[pid] || 0, proj[pid] || 0) >= 6) byeOut.push(label()); return; }
     }
     if (playing && pos === 'DEF' && !playing.has(lockTeamOfPid(pid))) return;
     let v = proj[pid];
@@ -5400,7 +5404,7 @@ async function computeOutlook(lg) {
   // Healthy baseline per player: average of his positive projections over the last six weeks. The feed zeroes
   // players who are out, so this is what a player returning from injury is assumed to score.
   const baseline = {}, bCnt = {};
-  for (let bw = Math.max(1, startWk - 6); bw < startWk; bw++) {
+  for (let bw = Math.max(1, firstWk - 6); bw < firstWk; bw++) {
     try {
       Object.entries(adjustProjectionsForLeague(lg, await fetchWeekProjections(season, bw, scoringKey, lg)) || {}).forEach(([k, v]) => {
         if (v > 0) { baseline[k] = (baseline[k] || 0) + v; bCnt[k] = (bCnt[k] || 0) + 1; }
@@ -5409,7 +5413,7 @@ async function computeOutlook(lg) {
   }
   Object.keys(baseline).forEach(k => { baseline[k] = Math.round(baseline[k] / bCnt[k] * 10) / 10; });
   try {                                    // seed from the week before, so players on bye in the first week still have a value
-    lastKnown = { ...(adjustProjectionsForLeague(lg, await fetchWeekProjections(season, startWk - 1, scoringKey, lg)) || {}) };
+    lastKnown = { ...(adjustProjectionsForLeague(lg, await fetchWeekProjections(season, firstWk - 1, scoringKey, lg)) || {}) };
   } catch(_) {}
 
   for (let w = firstWk; w <= OUTLOOK_END_WEEK; w++) {
@@ -5432,8 +5436,9 @@ async function computeOutlook(lg) {
       const liveCtx = w === startWk ? outlookLiveContext(row, r.players, rp, bestBall, sched) : null;
       if (liveCtx) weekLive = true;
       const st = outlookBestLineup(r.players, rp, proj, w === startWk,
-        { excl: new Set(r.taxi || []), playing, ref: lastKnown, week: w, startWk, baseline, ...(liveCtx || {}) });
+        { excl: new Set(r.taxi || []), playing, ref: lastKnown, week: w, startWk: firstWk, baseline, ...(liveCtx || {}) });
       dist[r.roster_id] = outlookDist(st, w);
+      Object.assign(wkEntry(r.roster_id, w), { mean: dist[r.roster_id].mean, byeOut: st.byeOut || [], irOut: st.irOut || [] });
       if (r.roster_id === mine.roster_id) { myBye = st.byeOut || []; myIr = st.irOut || []; }
     });
     const means = ids.map(id => dist[id].mean).sort((a, b) => a - b);
@@ -5639,8 +5644,9 @@ async function computeOutlook(lg) {
     const pDiv = hasDiv ? divWinCnt[id] / OUTLOOK_SIMS : null;
     return {
       id, name: nameOf(id), user: userOf(id), mine: id === mine.roster_id, seed: seedOf[id], seedLo: st.lo, seedHi: st.hi,
-      prob: st.prob, byeProb: st.byeProb, cur: { w: t.curW, l: t.curL }, exp: t.exp, likely: t.likely, games: t.games,
-      finalW: t.curW + t.exp, finalL: t.curL + (t.games - t.exp), weeks: wk,
+      prob: st.prob, byeProb: st.byeProb, cur: { w: t.curW, l: t.curL }, likely: t.likely, games: t.games,
+      exp: Math.round(t.exp * 10) / 10,
+      finalW: t.curW + Math.round(t.exp * 10) / 10, finalL: t.curL + (t.games - Math.round(t.exp * 10) / 10), weeks: wk,
       divName: divName[id] || null, divRank: divRank[id] || null, pDiv,
       pWild: hasDiv ? Math.max(0, st.prob - pDiv) : null, tie: tie[id] || null,
     };
@@ -5658,7 +5664,7 @@ async function computeOutlook(lg) {
     at: Date.now(), startWk: firstWk, lockedWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
     // Whole-number projected record: current wins + expected wins, rounded (.5 and up rounds up).
-    projW: Math.round(me.curW + me.exp), projL: Math.round(me.curW + me.curL + gamesLeft) - Math.round(me.curW + me.exp),
+    projW: Math.round(me.curW + Math.round(me.exp * 10) / 10), projL: Math.round(me.curW + me.curL + gamesLeft) - Math.round(me.curW + Math.round(me.exp * 10) / 10),
     live: weeks.some(x => x.live),
     seed, seedLo, seedHi, byes, byeProb, weeks, anyEst: weeks.some(x => x.est), noGames: !weeks.length,
   };
