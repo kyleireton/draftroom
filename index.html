@@ -4008,12 +4008,52 @@ function renderLeagueDetailRace() {
       <div class="pr-panel"><div class="pr-title" style="font-size:13px">Wildcard race <span class="pr-dim">· ${wcSpots} spot${wcSpots === 1 ? '' : 's'} after the division winners</span></div>${wcRows}</div></div>`;
   }
 
+  // Worst case: you win nothing more. Who could pass or tie you, how the tiebreakers fall, and which
+  // combinations of rivals decide it.
+  let worstPanel = '';
+  const ws = o.worst;
+  if (ws) {
+    const tb = o.hasDiv ? 'head-to-head first, then points for' : 'points for';
+    const names = a => a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+    const scenText = s => !s.names.length ? `No rival reaches ${ws.myW} wins`
+      : s.names.length === 1 ? `Only ${s.names[0]} reaches ${ws.myW}+ wins`
+      : `${names(s.names)} all reach ${ws.myW}+ wins`;
+    const riskiest = ws.scenarios.filter(s => s.p >= 0.02).sort((a, b) => a.make - b.make)[0];
+    const rivalRows = ws.rivals.map(r => {
+      const h = r.h2h.w > r.h2h.l ? `You hold it (${fmtRec(r.h2h.w, r.h2h.l)})`
+              : r.h2h.l > r.h2h.w ? `They hold it (${fmtRec(r.h2h.w, r.h2h.l)})`
+              : r.h2h.w + r.h2h.l > 0 ? `Split (${fmtRec(r.h2h.w, r.h2h.l)})` : 'None played';
+      const pf = Math.round(Math.abs(r.pfDiff));
+      const pfTxt = pf === 0 ? 'level' : r.pfDiff > 0 ? `you lead by ${pf}` : `they lead by ${pf}`;
+      const meets = r.meets.map(m => `plays ${escHtml(m.name)} in week ${m.weeks.join(', ')}`).join('; ');
+      return `<tr><td class="pr-team">${escHtml(r.name)}${r.user && r.user !== r.name ? `<div class="pr-user">@${escHtml(r.user)}</div>` : ''}</td>
+        <td class="pr-num">${fmtRec(r.curW, r.curL)}<div class="pr-dim">${r.games} left</div></td>
+        <td class="pr-num">${r.need ? `needs ${r.need} win${r.need === 1 ? '' : 's'}` : 'already there'}</td>
+        <td class="pr-num"><b>${outlookPctText(r.pReach)}</b></td>
+        <td class="pr-num">${outlookPctText(r.pAhead)}</td>
+        <td class="pr-num">${h}<div class="pr-dim">points for: ${pfTxt}</div></td>
+        <td class="pr-dim" style="text-align:left">${meets ? 'This rival ' + meets : ''}</td></tr>`;
+    }).join('');
+    const scenRows = ws.scenarios.map(s => `<tr><td>${escHtml(scenText(s))}</td><td class="pr-num">${outlookPctText(s.p)}</td>
+      <td class="pr-num"><b style="color:${s.make >= 0.7 ? '#4ade80' : s.make >= 0.3 ? '#fbbf24' : '#f87171'}">${outlookPctText(s.make)}</b></td></tr>`).join('');
+    worstPanel = `<div class="pr-panel pr-worst"><div class="pr-title" style="font-size:14px">Worst case: you win nothing more <span class="pr-dim">· you would finish ${fmtRec(ws.myW, ws.myL)}</span></div>
+      <div class="pr-why" style="font-size:13px">You still make the playoffs in <b>${outlookPctText(ws.prob)}</b> of simulated seasons where you lose every remaining game${o.median ? ' (median games included)' : ''}, against <b>${outlookPctText(o.prob)}</b> in the normal projection.${ws.seedIfIn ? ` When you do get in, the most common seed is #${ws.seedIfIn}.` : ''}${ws.divWin != null && ws.divWin >= 0.02 ? ` You win your division in ${outlookPctText(ws.divWin)}.` : ''}
+      Ties at ${ws.myW} wins are broken by ${tb}.</div>
+      ${ws.rivals.length ? `<div class="pr-divname" style="margin-top:12px">Who could pass or tie you</div>
+      <table class="pr-table"><thead><tr><th style="text-align:left">Team</th><th>Record</th><th>To reach ${ws.myW}</th><th title="Chance they finish with ${ws.myW} or more wins">Reaches</th><th title="Chance they finish ahead of you after tiebreakers">Ahead of you</th><th>Head-to-head tiebreaker</th><th style="text-align:left">Notes</th></tr></thead><tbody>${rivalRows}</tbody></table>
+      <div class="pr-divname" style="margin-top:12px">What decides it</div>
+      <table class="pr-table"><thead><tr><th style="text-align:left">Scenario</th><th>How often</th><th>You make it</th></tr></thead><tbody>${scenRows}</tbody></table>
+      ${riskiest ? `<div class="pr-why" style="margin-top:8px;font-size:13px">The outcome to watch: <b>${escHtml(scenText(riskiest).toLowerCase())}</b>. It happens ${outlookPctText(riskiest.p)} of the time and you get in ${outlookPctText(riskiest.make)} of those.</div>` : ''}`
+      : `<div class="pr-why" style="margin-top:8px">No other team is realistically able to reach ${ws.myW} wins from here, so there is nothing to lose to.</div>`}
+    </div>`;
+  }
+
   grid.innerHTML = `<div class="pr-wrap">
     <div class="pr-title">Playoff race <span class="pr-dim">· top ${o.nPlayoff} of ${o.nTeams} qualify${o.byes > 0 ? ` · top ${o.byes} get a week-15 bye` : ''}${o.median ? ' · median league: each week counts two games' : ''}</span></div>
     <table class="pr-table">
       <thead><tr><th>Seed</th><th style="text-align:left">Team</th><th>Now</th><th title="Expected wins from the remaining games: the sum of the weekly percentages">Exp. wins left</th><th title="Current record plus expected wins">Projected final</th><th title="Chance of finishing in the playoff field, from 3,000 simulated finishes">Playoffs</th>${divHead}<th title="Likely best to worst finish (10th to 90th percentile)">Range</th>${head}</tr></thead>
       <tbody>${rows}</tbody>
-    </table>${divPanel}
+    </table>${divPanel}${worstPanel ? `<div class="pr-panels">${worstPanel}</div>` : ''}
     <div class="pr-foot">Projected final = current record + the sum of each week's win probability. Seeds and playoff odds come from 3,000 simulated finishes (wins first, points for as tiebreak), so a team's seed reflects how those weekly odds add up. Every team is assumed to start its best projected lineup, with byes and IR excluded.${o.anyEst ? ' * = projections not yet published for that week; latest known values used.' : ''}</div>
   </div>`;
 }
@@ -5332,8 +5372,8 @@ async function computeOutlook(lg) {
       const sd = Math.sqrt(a.sd * a.sd + b.sd * b.sd);
       const pA = sd > 0 ? normalCdf((a.mean - b.mean) / sd) : (a.mean > b.mean ? 1 : a.mean < b.mean ? 0 : 0.5);
       simGames.push([r.roster_id, other.roster_id, pA]);
-      Object.assign(wkEntry(r.roster_id, w),     { opp: nameOf(other.roster_id), p: pA });
-      Object.assign(wkEntry(other.roster_id, w), { opp: nameOf(r.roster_id),     p: 1 - pA });
+      Object.assign(wkEntry(r.roster_id, w),     { opp: nameOf(other.roster_id), oppId: other.roster_id, p: pA });
+      Object.assign(wkEntry(other.roster_id, w), { opp: nameOf(r.roster_id),     oppId: r.roster_id,     p: 1 - pA });
       [[r.roster_id, pA], [other.roster_id, 1 - pA]].forEach(([id, p]) => {
         total[id].exp += p; total[id].games++; if (p >= 0.5) total[id].likely++;
       });
@@ -5370,22 +5410,24 @@ async function computeOutlook(lg) {
   const byes = pow2 - nPlayoff;          // 6 teams -> 2 byes, 7 -> 1, 4 or 8 -> none
   const divWinCnt = {}; ids.forEach(id => { divWinCnt[id] = 0; });
   const pfProj = {}; ids.forEach(id => { pfProj[id] = total[id].pf; });
-  for (let i = 0; i < OUTLOOK_SIMS; i++) {
+  // One simulated finish. forceLoseId: every game (and median game) of that team is a loss, which is
+  // how the worst case below is run. Returns the playoff order (qualifiers first, seeded) and division winners.
+  const playSeason = forceLoseId => {
     const wins = {}; ids.forEach(id => wins[id] = total[id].curW);
     const fut = {};                                   // head-to-head wins from the simulated games
     simGames.forEach(([a, b, pA]) => {
-      if (b == null) { if (Math.random() < pA) wins[a]++; return; }
-      const aWon = Math.random() < pA;
+      if (b == null) { if (a !== forceLoseId && Math.random() < pA) wins[a]++; return; }
+      let aWon = Math.random() < pA;
+      if (a === forceLoseId) aWon = false; else if (b === forceLoseId) aWon = true;
       if (aWon) { wins[a]++; fut[a + '|' + b] = (fut[a + '|' + b] || 0) + 1; }
       else      { wins[b]++; fut[b + '|' + a] = (fut[b + '|' + a] || 0) + 1; }
     });
-    let order;
+    let order, winners = [];
     if (hasDiv) {
       // Division winners are guaranteed a spot; the remaining spots go to the best other records;
       // all qualifiers are seeded by overall record (tiebreak: head-to-head, then points for).
       const overall = outlookOrder(ids, wins, fut, h2hBase, pfProj);
-      const winners = divisions.map(d => outlookOrder(d.ids, wins, fut, h2hBase, pfProj)[0]);
-      winners.forEach(id => { divWinCnt[id]++; });
+      winners = divisions.map(d => outlookOrder(d.ids, wins, fut, h2hBase, pfProj)[0]);
       const wSet = new Set(winners);
       let spots = nPlayoff - wSet.size;
       const field = overall.filter(id => wSet.has(id) || (spots-- > 0));
@@ -5394,10 +5436,76 @@ async function computeOutlook(lg) {
     } else {
       order = [...ids].sort((x, y) => (wins[y] - wins[x]) || (total[y].pf - total[x].pf));
     }
+    return { wins, fut, order, winners };
+  };
+  for (let i = 0; i < OUTLOOK_SIMS; i++) {
+    const { order, winners } = playSeason(null);
+    winners.forEach(id => { divWinCnt[id]++; });
     const idx = order.indexOf(mine.roster_id);
     if (idx < nPlayoff) made++;
     seeds.push(idx + 1);
     order.forEach((id, i) => { seedCnt[id][i + 1]++; });
+  }
+
+  // ── Worst case: you win nothing more ──
+  // Same simulation with all of your remaining games forced to losses. Records, per rival, how often they
+  // reach or pass your win total and how often they finish ahead of you after tiebreakers, plus which
+  // combinations of rivals reaching your total decide it.
+  let worst = null;
+  const myId = mine.roster_id, myGames = total[myId].games;
+  if (myGames > 0) {
+    let wMade = 0, wDiv = 0;
+    const wSeed = new Array(ids.length + 2).fill(0);
+    const reach = {}, above = {}, tied = {}, ahead = {};
+    ids.forEach(id => { reach[id] = above[id] = tied[id] = ahead[id] = 0; });
+    const pat = new Map();                              // "ids that reach your wins" → { n, made }
+    for (let i = 0; i < OUTLOOK_SIMS; i++) {
+      const { wins, order, winners } = playSeason(myId);
+      const idx = order.indexOf(myId), mw = wins[myId], ok = idx < nPlayoff;
+      if (ok) wMade++;
+      if (winners.includes(myId)) wDiv++;
+      wSeed[idx + 1]++;
+      const reached = [];
+      order.forEach((id, pos) => {
+        if (id === myId) return;
+        if (wins[id] >= mw) { reach[id]++; reached.push(id); }
+        if (wins[id] > mw) above[id]++; else if (wins[id] === mw) tied[id]++;
+        if (pos < idx) ahead[id]++;
+      });
+      const key = reached.sort((a, b) => a - b).join(',');
+      const e = pat.get(key) || { n: 0, made: 0, ids: reached };
+      e.n++; if (ok) e.made++;
+      pat.set(key, e);
+    }
+    const N = OUTLOOK_SIMS, myW = total[myId].curW;
+    const rivalIds = ids.filter(id => id !== myId && reach[id] / N >= 0.03)
+      .sort((a, b) => (reach[b] - reach[a]) || (ahead[b] - ahead[a])).slice(0, 6);
+    const rset = new Set(rivalIds);
+    const meetWeeks = (a, b) => Object.values(teamWk[a] || {}).filter(x => x.oppId === b).map(x => x.w);
+    const rivals = rivalIds.map(id => ({
+      id, name: nameOf(id), user: userOf(id), curW: total[id].curW, curL: total[id].curL, games: total[id].games,
+      need: Math.max(0, Math.ceil(myW - total[id].curW)),
+      pReach: reach[id] / N, pAbove: above[id] / N, pTied: tied[id] / N, pAhead: ahead[id] / N,
+      h2h: { w: h2hBase[myId]?.[id] || 0, l: h2hBase[id]?.[myId] || 0 },
+      pfDiff: pfProj[myId] - pfProj[id],
+      meets: rivalIds.filter(o => o !== id && o > id).map(o => ({ name: nameOf(o), weeks: meetWeeks(id, o) })).filter(m => m.weeks.length),
+    }));
+    // Collapse the patterns onto the main rivals so the table stays readable.
+    const merged = new Map();
+    pat.forEach(e => {
+      const k = e.ids.filter(id => rset.has(id)).sort((a, b) => a - b).join(',');
+      const m = merged.get(k) || { n: 0, made: 0, ids: e.ids.filter(id => rset.has(id)) };
+      m.n += e.n; m.made += e.made; merged.set(k, m);
+    });
+    const scenarios = [...merged.values()].sort((a, b) => b.n - a.n).slice(0, 7)
+      .map(m => ({ names: m.ids.map(nameOf), p: m.n / N, make: m.made / m.n }));
+    let seedMode = 1; wSeed.forEach((c, s) => { if (c > wSeed[seedMode]) seedMode = s; });
+    let madeSeedMode = null, best = -1;
+    for (let s = 1; s <= nPlayoff; s++) if (wSeed[s] > best) { best = wSeed[s]; madeSeedMode = s; }
+    worst = {
+      prob: wMade / N, divWin: hasDiv ? wDiv / N : null, myW, myL: total[myId].curL + myGames, games: myGames,
+      seedIfIn: wMade ? madeSeedMode : null, rivals, scenarios,
+    };
   }
   const prob = made / OUTLOOK_SIMS;   // same figure as teams[mine].prob
 
@@ -5458,7 +5566,7 @@ async function computeOutlook(lg) {
   const me = total[mine.roster_id];
   const gamesLeft = me.games;
   return {
-    teams, weekFlags, hasDiv, h2h: hasDiv ? h2hBase : null, pf: pfProj,
+    teams, weekFlags, hasDiv, worst, h2h: hasDiv ? h2hBase : null, pf: pfProj,
     divisions: divInfo.map(d => ({ name: d.name, order: d.order.map(id => ({ id, name: nameOf(id) })) })),
     at: Date.now(), startWk, median, bestBall, nTeams: ids.length, nPlayoff, prob, tier: outlookTier(seed, prob, nPlayoff),
     cur: { w: me.curW, l: me.curL }, likely: me.likely, exp: me.exp, gamesLeft,
