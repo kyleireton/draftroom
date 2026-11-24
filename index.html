@@ -4043,7 +4043,7 @@ function renderLeagueDetailRace() {
       <table class="pr-table"><thead><tr><th style="text-align:left">Team</th><th>Record</th><th>To reach ${ws.myW}</th><th title="Chance they finish with ${ws.myW} or more wins">Reaches</th><th title="Chance they finish ahead of you after tiebreakers">Ahead of you</th><th>Head-to-head tiebreaker</th><th style="text-align:left">Notes</th></tr></thead><tbody>${rivalRows}</tbody></table>
       <div class="pr-divname" style="margin-top:12px">What decides it</div>
       <table class="pr-table"><thead><tr><th style="text-align:left">Scenario</th><th>How often</th><th>You make it</th></tr></thead><tbody>${scenRows}</tbody></table>
-      ${riskiest ? `<div class="pr-why" style="margin-top:8px;font-size:13px">The outcome to watch: <b>${escHtml(scenText(riskiest).toLowerCase())}</b>. It happens ${outlookPctText(riskiest.p)} of the time and you get in ${outlookPctText(riskiest.make)} of those.</div>` : ''}`
+      ${riskiest ? `<div class="pr-why" style="margin-top:8px;font-size:13px">The outcome to watch: <b>${escHtml(scenText(riskiest))}</b>. It happens ${outlookPctText(riskiest.p)} of the time and you get in ${outlookPctText(riskiest.make)} of those.</div>` : ''}`
       : `<div class="pr-why" style="margin-top:8px">No other team is realistically able to reach ${ws.myW} wins from here, so there is nothing to lose to.</div>`}
     </div>`;
   }
@@ -5325,6 +5325,8 @@ async function computeOutlook(lg) {
     const r = rosters.find(x => x.roster_id === id), u = (users || []).find(x => x.user_id === r?.owner_id);
     return u?.display_name || u?.username || '';
   };
+  // Team names change week to week; the Sleeper username does not, so scenarios identify teams by "@username".
+  const handleOf = id => { const u = userOf(id); return u ? '@' + u : nameOf(id); };
   const teamWk = {};                       // id → { w → { w, opp, p, pMed } }
   const wkEntry = (id, w) => ((teamWk[id] ||= {})[w] ||= { w, opp: null, p: null, pMed: null });
   const weekFlags = {};                    // w → { est, live, byeKnown }
@@ -5488,7 +5490,7 @@ async function computeOutlook(lg) {
       pReach: reach[id] / N, pAbove: above[id] / N, pTied: tied[id] / N, pAhead: ahead[id] / N,
       h2h: { w: h2hBase[myId]?.[id] || 0, l: h2hBase[id]?.[myId] || 0 },
       pfDiff: pfProj[myId] - pfProj[id],
-      meets: rivalIds.filter(o => o !== id && o > id).map(o => ({ name: nameOf(o), weeks: meetWeeks(id, o) })).filter(m => m.weeks.length),
+      meets: rivalIds.filter(o => o !== id && o > id).map(o => ({ name: handleOf(o), weeks: meetWeeks(id, o) })).filter(m => m.weeks.length),
     }));
     // Collapse the patterns onto the main rivals so the table stays readable.
     const merged = new Map();
@@ -5498,7 +5500,7 @@ async function computeOutlook(lg) {
       m.n += e.n; m.made += e.made; merged.set(k, m);
     });
     const scenarios = [...merged.values()].sort((a, b) => b.n - a.n).slice(0, 7)
-      .map(m => ({ names: m.ids.map(nameOf), p: m.n / N, make: m.made / m.n }));
+      .map(m => ({ names: m.ids.map(handleOf), p: m.n / N, make: m.made / m.n }));
     let seedMode = 1; wSeed.forEach((c, s) => { if (c > wSeed[seedMode]) seedMode = s; });
     let madeSeedMode = null, best = -1;
     for (let s = 1; s <= nPlayoff; s++) if (wSeed[s] > best) { best = wSeed[s]; madeSeedMode = s; }
